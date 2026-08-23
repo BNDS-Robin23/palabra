@@ -15,7 +15,8 @@ export type GameCard = {
 };
 
 const COLORS: CardColor[] = ["red", "yellow", "blue", "green"];
-const WORD_CARD_COUNT = 96;
+export const GAME_CATEGORY_COUNT = 6;
+export const WORD_CARD_COUNT = 108;
 
 type WordPoolCard = Omit<GameCard, "color"> & { kind: "word"; groups: string[] };
 
@@ -54,12 +55,13 @@ const actionSeeds: Array<[ActionKind, string, string]> = [
 ];
 
 export const ACTION_CARDS: GameCard[] = actionSeeds.flatMap(([action, word, zh]) =>
-  Array.from({ length: 4 }, (_, index) => ({
-    id: `a-${action}-${index + 1}`,
+  COLORS.map((color) => ({
+    id: `a-${action}-${color}`,
     word,
     zh,
     kind: "action" as const,
     action,
+    color,
   })),
 );
 
@@ -78,10 +80,56 @@ function shuffle<T>(items: T[]) {
   return copy;
 }
 
-export function buildDeck(): GameCard[] {
-  const wordCards = shuffle(WORD_POOL)
-    .slice(0, WORD_CARD_COUNT)
-    .map((card) => ({ ...card, groups: [...card.groups], color: COLORS[randomIndex(COLORS.length)] }));
+export function selectGameCategoryIds(categoryIds: string[] = []) {
+  const allIds = VOCABULARY_CATEGORIES.map((category) => category.id);
+  if (categoryIds.length === 0) return shuffle(allIds).slice(0, GAME_CATEGORY_COUNT);
+  const uniqueIds = [...new Set(categoryIds)];
+  if (
+    uniqueIds.length !== GAME_CATEGORY_COUNT
+    || uniqueIds.some((id) => !allIds.includes(id))
+  ) {
+    throw new Error(`请选择恰好 ${GAME_CATEGORY_COUNT} 个有效类别。`);
+  }
+  return uniqueIds;
+}
+
+function buildSelectedWordPool(categoryIds: string[]) {
+  const selected = new Set(categoryIds);
+  const words = new Map<string, WordPoolCard>();
+  for (const category of VOCABULARY_CATEGORIES) {
+    if (!selected.has(category.id)) continue;
+    for (const [word, zh] of category.words) {
+      const key = word.normalize("NFC").toLocaleLowerCase("es");
+      const existing = words.get(key);
+      if (existing) {
+        if (!existing.groups.includes(category.id)) existing.groups.push(category.id);
+        existing.zh = mergeMeaning(existing.zh, zh);
+        continue;
+      }
+      words.set(key, {
+        id: `selected-${words.size + 1}`,
+        word,
+        zh,
+        kind: "word",
+        groups: [category.id],
+      });
+    }
+  }
+  return [...words.values()];
+}
+
+export function buildDeck(categoryIds: string[] = []): GameCard[] {
+  const selectedCategoryIds = selectGameCategoryIds(categoryIds);
+  const pool = shuffle(buildSelectedWordPool(selectedCategoryIds));
+  const wordCards = Array.from({ length: WORD_CARD_COUNT }, (_, index) => {
+    const card = pool[index % pool.length];
+    return {
+      ...card,
+      id: `w-${index + 1}-${card.id}`,
+      groups: [...card.groups],
+      color: COLORS[randomIndex(COLORS.length)],
+    };
+  });
   return [...wordCards, ...ACTION_CARDS.map((card) => ({ ...card }))];
 }
 
@@ -92,7 +140,9 @@ function sharesGroup(a: GameCard, b: GameCard) {
 }
 
 export function cardsMatch(a: GameCard, b: GameCard) {
-  if (a.kind === "action" || b.kind === "action") return true;
+  if (a.kind === "action" || b.kind === "action") {
+    return !!a.color && a.color === b.color;
+  }
   return (!!a.color && a.color === b.color) || sharesGroup(a, b);
 }
 

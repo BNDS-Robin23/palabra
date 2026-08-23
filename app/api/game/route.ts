@@ -29,6 +29,7 @@ type GamePayload = {
   code?: string;
   cardId?: string;
   mode?: GameMode;
+  categoryIds?: string[];
   setting?: keyof PracticeSettings;
   value?: boolean;
 };
@@ -109,7 +110,7 @@ export async function POST(request: Request) {
         crypto.getRandomValues(random);
         const code = Array.from(random, (byte) => alphabet[byte % alphabet.length]).join("");
         const mode: GameMode = payload.mode === "practice" ? "practice" : "normal";
-        const state = createWaitingState(user.id, user.username, mode);
+        const state = createWaitingState(user.id, user.username, mode, payload.categoryIds);
         const now = Math.floor(Date.now() / 1000);
         try {
           await getD1().prepare(

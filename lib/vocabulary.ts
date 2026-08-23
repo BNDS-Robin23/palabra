@@ -163,3 +163,7 @@ export const VOCABULARY_CATEGORIES: VocabularyCategory[] = [
 export const VOCABULARY_CATEGORY_NAMES = Object.fromEntries(
   VOCABULARY_CATEGORIES.map((category) => [category.id, category.zh]),
 ) as Record<string, string>;
+
+export const VOCABULARY_CATEGORY_OPTIONS = VOCABULARY_CATEGORIES.map(
+  ({ id, zh, es }) => ({ id, zh, es }),
+);

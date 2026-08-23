@@ -1,4 +1,4 @@
-import { buildDeck, canPlayCard, cardsMatch, type GameCard } from "./cards";
+import { buildDeck, canPlayCard, cardsMatch, selectGameCategoryIds, type GameCard } from "./cards";
 import { VOCABULARY_CATEGORY_NAMES } from "./vocabulary";
 
 export type GameMode = "normal" | "practice";
@@ -30,9 +30,18 @@ export type Reveal = {
   playedZh: string;
 };
 
+export type PlayEvent = {
+  id: number;
+  actorId: string;
+  actorName: string;
+  actorType: Player["type"];
+  card: GameCard;
+};
+
 export type GameState = {
   mode?: GameMode;
   practiceSettings?: PracticeSettings;
+  categoryIds?: string[];
   players: Player[];
   drawPile: GameCard[];
   discardPile: GameCard[];
@@ -44,6 +53,7 @@ export type GameState = {
   winnerId?: string;
   sequence: number;
   reveal?: Reveal;
+  playEvents?: PlayEvent[];
   logs: GameLog[];
 };
 
@@ -57,6 +67,7 @@ export type PublicGameState = {
   version: number;
   mode: GameMode;
   practiceSettings: PracticeSettings;
+  categoryIds: string[];
   status: GameState["status"];
   players: Array<{
     id: string;
@@ -76,6 +87,7 @@ export type PublicGameState = {
   topCard: ClientCard | null;
   winnerId?: string;
   reveal?: Reveal;
+  playEvents: Array<Omit<PlayEvent, "card"> & { card: ClientCard }>;
   logs: GameLog[];
 };
 
@@ -99,6 +111,20 @@ function addLog(state: GameState, text: string, tone: GameLog["tone"] = "normal"
   state.sequence += 1;
   state.logs.unshift({ id: state.sequence, text, tone });
   state.logs = state.logs.slice(0, 10);
+}
+
+function addPlayEvent(state: GameState, player: Player, card: GameCard) {
+  state.sequence += 1;
+  state.playEvents = [
+    ...(state.playEvents ?? []),
+    {
+      id: state.sequence,
+      actorId: player.id,
+      actorName: player.name,
+      actorType: player.type,
+      card: { ...card, groups: card.groups ? [...card.groups] : undefined },
+    },
+  ].slice(-64);
 }
 
 function normalizedMode(state: GameState): GameMode {
@@ -136,10 +162,16 @@ function drawMany(state: GameState, player: Player, count: number) {
   }
 }
 
-export function createWaitingState(userId: string, username: string, mode: GameMode = "normal"): GameState {
+export function createWaitingState(
+  userId: string,
+  username: string,
+  mode: GameMode = "normal",
+  categoryIds: string[] = [],
+): GameState {
   return {
     mode,
     practiceSettings: { showChinese: false, showPlayedMeanings: false },
+    categoryIds: selectGameCategoryIds(categoryIds),
     players: [{ id: `human-${userId}`, name: username, type: "human", userId, hand: [] }],
     drawPile: [],
     discardPile: [],
@@ -148,6 +180,7 @@ export function createWaitingState(userId: string, username: string, mode: GameM
     status: "waiting",
     firstMove: true,
     sequence: 0,
+    playEvents: [],
     logs: [],
   };
 }
@@ -163,9 +196,9 @@ export function setPracticeSetting(
 }
 
 export function addHumanPlayer(state: GameState, userId: string, username: string) {
+  if (state.players.some((player) => player.userId === userId)) return;
   if (state.status !== "waiting") throw new Error("牌局已经开始，无法加入。");
   if (state.players.length >= 10) throw new Error("房间已满，最多 10 人。");
-  if (state.players.some((player) => player.userId === userId)) return;
   state.players.push({ id: `human-${userId}`, name: username, type: "human", userId, hand: [] });
   addLog(state, `${username} 加入了房间。`);
 }
@@ -184,7 +217,8 @@ export function addAiPlayer(state: GameState) {
 export function startGame(state: GameState) {
   if (state.status !== "waiting") throw new Error("牌局已经开始。");
   if (state.players.length < 2) throw new Error("至少需要 2 名玩家才能开始。");
-  const deck = shuffle(buildDeck());
+  state.categoryIds = selectGameCategoryIds(state.categoryIds);
+  const deck = shuffle(buildDeck(state.categoryIds));
   for (const player of state.players) player.hand = [];
   for (let round = 0; round < 7; round += 1) {
     for (const player of state.players) {
@@ -201,6 +235,7 @@ export function startGame(state: GameState) {
   state.drawnCardId = undefined;
   state.winnerId = undefined;
   state.reveal = undefined;
+  state.playEvents = [];
   state.logs = [];
   addLog(state, `牌局开始，${state.players[0].name} 可以打出任意一张牌。`, "success");
 }
@@ -212,6 +247,7 @@ function applyValidPlay(state: GameState, playerIndex: number, cardIndex: number
   state.firstMove = false;
   state.drawnCardId = undefined;
   state.reveal = undefined;
+  addPlayEvent(state, player, card);
   const meaning = showPlayedMeanings(state) ? `（${card.zh}）` : "";
   addLog(
     state,
@@ -397,6 +433,7 @@ export function toPublicState(
     version,
     mode,
     practiceSettings,
+    categoryIds: [...(state.categoryIds ?? [])],
     status: state.status,
     players: state.players.map((player, index) => ({
       id: player.id,
@@ -416,6 +453,10 @@ export function toPublicState(
     topCard: state.discardPile.length ? visibleCard(state.discardPile[state.discardPile.length - 1]) : null,
     winnerId: state.winnerId,
     reveal: state.reveal,
+    playEvents: (state.playEvents ?? []).map((event) => ({
+      ...event,
+      card: visibleCard(event.card),
+    })),
     logs: state.logs,
   };
 }
