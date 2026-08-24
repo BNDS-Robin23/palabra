@@ -70,6 +70,36 @@ button { color: inherit; touch-action: manipulation; }
 .rules-compact h2 { font-size: 24px; margin: 5px 0; }
 .rules-compact .rule-list { grid-template-columns: repeat(4, 1fr); gap: 22px; }
 
+.auth-study-band { padding: 18px clamp(28px, 8vw, 128px) 72px; }
+.study-deck { max-width: 720px; margin-top: 30px; padding: 24px; display: grid; grid-template-columns: minmax(190px, .8fr) minmax(270px, 1.2fr); gap: 26px; align-items: center; border: 3px solid var(--uno-navy); border-radius: 22px; background: rgba(255,255,255,.94); box-shadow: 9px 11px 0 var(--uno-yellow), 15px 18px 0 rgba(17,20,44,.16); }
+.auth-study-band .study-deck { width: min(1100px, 100%); max-width: none; margin: 0 auto; grid-template-columns: minmax(230px, .72fr) minmax(340px, 1.28fr); }
+.study-copy h2 { margin: 10px 0 12px; color: var(--uno-navy); font-family: Arial Black, Impact, ui-sans-serif, sans-serif; font-size: clamp(28px, 3vw, 42px); font-style: italic; line-height: 1.02; letter-spacing: -.045em; }
+.study-copy > p { margin: 0; color: var(--ink-soft); font-size: 13px; line-height: 1.65; }
+.study-progress { height: 8px; margin-top: 24px; overflow: hidden; border: 2px solid var(--uno-navy); border-radius: 999px; background: #e7e9f4; }
+.study-progress span { height: 100%; display: block; border-radius: inherit; background: var(--uno-green); transition: width .24s ease; }
+.study-copy > small { display: block; margin-top: 7px; color: var(--ink-soft); font-size: 10px; font-weight: 850; }
+.study-workspace { min-width: 0; }
+.study-card { position: relative; width: 100%; min-height: 248px; padding: 0; border: 0; border-radius: 19px; background: transparent; cursor: pointer; perspective: 1100px; }
+.study-card:focus-visible { outline: 5px solid rgba(22,113,223,.35); outline-offset: 5px; }
+.study-card-inner { position: absolute; inset: 0; display: block; transform-style: preserve-3d; transition: transform .48s cubic-bezier(.2,.72,.24,1); }
+.study-card.flipped .study-card-inner { transform: rotateY(180deg); }
+.study-card-face { position: absolute; inset: 0; padding: 25px; display: grid; place-items: center; align-content: center; gap: 11px; overflow: hidden; border: 4px solid var(--uno-navy); border-radius: 19px; color: white; backface-visibility: hidden; -webkit-backface-visibility: hidden; box-shadow: 7px 8px 0 var(--uno-navy); }
+.study-card-face::before { content: ""; position: absolute; width: 86%; height: 58%; border: 4px solid rgba(255,255,255,.78); border-radius: 50%; transform: rotate(-24deg); }
+.study-card-face > * { position: relative; z-index: 1; }
+.study-card-front { background: var(--uno-red); }
+.study-card-back { background: var(--uno-blue); transform: rotateY(180deg); }
+.study-card-face small { font-size: 9px; font-weight: 900; letter-spacing: .2em; }
+.study-card-face strong { max-width: 100%; font-family: Arial Black, Impact, ui-sans-serif, sans-serif; font-size: clamp(33px, 4.2vw, 56px); font-style: italic; line-height: 1; overflow-wrap: anywhere; text-align: center; text-shadow: 3px 4px 0 rgba(17,20,44,.35); }
+.study-card-face em { max-width: 90%; padding: 6px 9px; border-radius: 999px; background: rgba(17,20,44,.28); font-size: 10px; font-style: normal; font-weight: 800; text-align: center; }
+.study-controls { margin-top: 14px; }
+.study-sound { width: 100%; min-height: 46px; padding: 10px 15px; display: flex; align-items: center; justify-content: center; gap: 8px; border: 2px solid var(--uno-navy); border-radius: 11px; background: var(--uno-yellow); color: var(--uno-navy); box-shadow: 0 4px 0 var(--uno-navy); cursor: pointer; font-size: 12px; font-weight: 900; }
+.study-sound:disabled { opacity: .72; cursor: default; }
+.study-nav { margin-top: 11px; display: grid; grid-template-columns: 1fr 1.05fr 1fr; gap: 8px; }
+.study-nav button { min-height: 40px; padding: 7px 9px; border: 2px solid var(--uno-navy); border-radius: 10px; background: white; color: var(--uno-navy); cursor: pointer; font-size: 10px; font-weight: 850; }
+.study-nav button:nth-child(2) { color: white; background: var(--uno-green); }
+.study-nav button:hover, .study-sound:hover:not(:disabled) { transform: translateY(-1px); }
+.study-audio-status { min-height: 16px; margin: 8px 0 0; color: var(--uno-red); font-size: 10px; font-weight: 750; text-align: center; }
+
 .lobby-shell, .waiting-shell { min-height: 100vh; background: linear-gradient(135deg, rgba(255,255,255,.5), transparent 42%), var(--paper); }
 .user-area, .game-meta { display: flex; align-items: center; gap: 16px; font-size: 13px; color: var(--ink-soft); }
 .user-area button, .game-meta button { border: 0; background: transparent; color: var(--ink); text-decoration: underline; cursor: pointer; font-weight: 700; }
@@ -287,6 +317,8 @@ button { color: inherit; touch-action: manipulation; }
 @media (max-width: 820px) {
   .auth-grid, .lobby-grid { grid-template-columns: 1fr; }
   .auth-grid { min-height: auto; padding: 24px 22px 56px; gap: 42px; }
+  .auth-study-band { padding: 0 22px 56px; }
+  .auth-study-band .study-deck { grid-template-columns: minmax(190px, .8fr) minmax(270px, 1.2fr); }
   .auth-card { order: -1; justify-self: stretch; max-width: none; }
   .hero-copy { text-align: center; margin: 0 auto; }
   .hero-copy h1 { font-size: 48px; }
@@ -323,6 +355,18 @@ button { color: inherit; touch-action: manipulation; }
   .auth-card input, .join-box input { min-height: 50px; font-size: 16px; }
   .primary-button, .secondary-button { min-height: 54px; }
   .auth-note { margin-top: 21px !important; line-height: 1.5; }
+  .auth-study-band { padding: 0 14px 46px; }
+  .study-deck, .auth-study-band .study-deck { padding: 18px; grid-template-columns: 1fr; gap: 20px; border-radius: 18px; box-shadow: 6px 8px 0 var(--uno-yellow), 10px 13px 0 rgba(17,20,44,.13); }
+  .study-deck { margin-top: 26px; }
+  .auth-study-band .study-deck { margin-top: 0; }
+  .study-copy h2 { font-size: 30px; }
+  .study-copy > p { font-size: 12px; }
+  .study-progress { margin-top: 17px; }
+  .study-card { min-height: 226px; }
+  .study-card-face { padding: 20px; box-shadow: 5px 6px 0 var(--uno-navy); }
+  .study-card-face strong { font-size: clamp(34px, 11vw, 50px); }
+  .study-nav button { min-height: 44px; }
+  .study-nav button span { display: none; }
   .hero-copy .eyebrow { font-size: 9px; }
   .hero-copy h1 { margin: 14px 0 18px; font-size: clamp(38px, 12vw, 50px); line-height: .98; }
   .hero-copy > p { font-size: 14px; line-height: 1.65; }

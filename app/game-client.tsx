@@ -9,7 +9,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { VOCABULARY_CATEGORY_OPTIONS } from "../lib/vocabulary";
+import { VOCABULARY_CATEGORIES, VOCABULARY_CATEGORY_OPTIONS } from "../lib/vocabulary";
 import { wordAudioPath } from "../lib/word-audio";
 
 type User = { id: string; username: string };
@@ -66,6 +66,28 @@ type FlightStyle = CSSProperties & {
   "--play-to-x": string;
   "--play-to-y": string;
 };
+
+type StudyWord = {
+  word: string;
+  zh: string;
+  categories: string[];
+};
+
+const STUDY_WORDS: StudyWord[] = (() => {
+  const words = new Map<string, StudyWord>();
+  for (const category of VOCABULARY_CATEGORIES) {
+    for (const [word, zh] of category.words) {
+      const key = word.toLocaleLowerCase("es");
+      const existing = words.get(key);
+      if (existing) {
+        if (!existing.categories.includes(category.zh)) existing.categories.push(category.zh);
+      } else {
+        words.set(key, { word, zh, categories: [category.zh] });
+      }
+    }
+  }
+  return [...words.values()].sort((left, right) => left.word.localeCompare(right.word, "es"));
+})();
 
 async function readJson(response: Response) {
   const data = (await response.json()) as { error?: string; user?: User | null; game?: GameView };
@@ -324,6 +346,112 @@ function Rules({ compact = false }: { compact?: boolean }) {
   );
 }
 
+function StudyDeck() {
+  const [index, setIndex] = useState(0);
+  const [flipped, setFlipped] = useState(false);
+  const [audioPlaying, setAudioPlaying] = useState(false);
+  const [audioError, setAudioError] = useState("");
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const current = STUDY_WORDS[index];
+
+  const stopAudio = useCallback(() => {
+    const audio = audioRef.current;
+    audioRef.current = null;
+    if (audio) {
+      audio.pause();
+      audio.currentTime = 0;
+    }
+    setAudioPlaying(false);
+  }, []);
+
+  useEffect(() => stopAudio, [stopAudio]);
+
+  const chooseWord = useCallback((nextIndex: number) => {
+    stopAudio();
+    setFlipped(false);
+    setAudioError("");
+    setIndex(nextIndex);
+  }, [stopAudio]);
+
+  function playAudio() {
+    stopAudio();
+    setAudioError("");
+    const audio = new Audio(wordAudioPath(current.word));
+    audio.preload = "auto";
+    audio.volume = 1;
+    audioRef.current = audio;
+    const finish = () => {
+      if (audioRef.current === audio) {
+        audioRef.current = null;
+        setAudioPlaying(false);
+      }
+    };
+    audio.addEventListener("ended", finish, { once: true });
+    audio.addEventListener("error", () => {
+      finish();
+      setAudioError("发音播放失败，请检查浏览器声音设置。");
+    }, { once: true });
+    void audio.play().then(() => setAudioPlaying(true)).catch(() => {
+      finish();
+      setAudioError("浏览器阻止了播放，请再点一次发音按钮。");
+    });
+  }
+
+  function chooseRandomWord() {
+    const offset = STUDY_WORDS.length > 1
+      ? 1 + Math.floor(Math.random() * (STUDY_WORDS.length - 1))
+      : 0;
+    chooseWord((index + offset) % STUDY_WORDS.length);
+  }
+
+  return (
+    <section className="study-deck" aria-labelledby="study-deck-title">
+      <div className="study-copy">
+        <div className="eyebrow">TARJETAS DE VOCABULARIO</div>
+        <h2 id="study-deck-title">翻一张，记住一个词</h2>
+        <p>先看西班牙语想一想，再翻面核对中文。每张卡都能播放固定的西班牙语发音。</p>
+        <div className="study-progress" aria-label={`第 ${index + 1} 个单词，共 ${STUDY_WORDS.length} 个`}>
+          <span style={{ width: `${((index + 1) / STUDY_WORDS.length) * 100}%` }} />
+        </div>
+        <small>{index + 1} / {STUDY_WORDS.length} 个单词</small>
+      </div>
+      <div className="study-workspace">
+        <button
+          type="button"
+          className={`study-card${flipped ? " flipped" : ""}`}
+          aria-label={flipped ? `中文释义：${current.zh}。点击返回西班牙语。` : `西班牙语：${current.word}。点击查看中文。`}
+          aria-pressed={flipped}
+          onClick={() => setFlipped((value) => !value)}
+        >
+          <span className="study-card-inner">
+            <span className="study-card-face study-card-front">
+              <small>ESPAÑOL</small>
+              <strong>{current.word}</strong>
+              <em>点击翻面查看中文</em>
+            </span>
+            <span className="study-card-face study-card-back">
+              <small>中文释义</small>
+              <strong>{current.zh}</strong>
+              <em>{current.categories.join(" · ")}</em>
+            </span>
+          </span>
+        </button>
+        <div className="study-controls">
+          <button type="button" className="study-sound" onClick={playAudio} disabled={audioPlaying}>
+            <span aria-hidden="true">🔊</span>{audioPlaying ? "正在播放…" : `播放“${current.word}”`}
+          </button>
+          <div className="study-nav">
+            <button type="button" onClick={() => chooseWord((index - 1 + STUDY_WORDS.length) % STUDY_WORDS.length)} aria-label="上一个单词">← <span>上一个</span></button>
+            <button type="button" onClick={chooseRandomWord}>随机一个</button>
+            <button type="button" onClick={() => chooseWord((index + 1) % STUDY_WORDS.length)} aria-label="下一个单词"><span>下一个</span> →</button>
+          </div>
+          <p className="study-audio-status" role="status" aria-live="polite">{audioError}</p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function AuthScreen({ onAuthenticated }: { onAuthenticated: (user: User) => void }) {
   const [mode, setMode] = useState<"login" | "register">("register");
   const [username, setUsername] = useState("");
@@ -379,6 +507,7 @@ function AuthScreen({ onAuthenticated }: { onAuthenticated: (user: User) => void
           <p className="auth-note">仅使用用户名和密码 · 不需要邮箱 · 不需要 ChatGPT 账号</p>
         </section>
       </div>
+      <div className="auth-study-band"><StudyDeck /></div>
       <Rules compact />
     </main>
   );
@@ -432,6 +561,7 @@ function Lobby({ user, onGame, onLogout }: { user: User; onGame: (game: GameView
           <div className="eyebrow">LISTO PARA JUGAR</div>
           <h1>今天，想用哪个词<br />赢下这一局？</h1>
           <p className="lobby-intro">创建一个新房间，或输入朋友分享的 6 位房间号。开局前可以随时补充 AI 玩家。</p>
+          <StudyDeck />
           <section className="category-picker" aria-label="选择本局词汇类别">
             <div className="category-picker-head">
               <div><b>选择本局的 6 个类别</b><small>{selectedCategoryIds.length === 0 ? "不选择则由系统随机抽取六类" : `已选择 ${selectedCategoryIds.length} / 6`}</small></div>
