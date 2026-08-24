@@ -7,6 +7,7 @@ import { VOCABULARY_CATEGORIES } from "../lib/vocabulary";
 import { wordAudioFileName } from "../lib/word-audio";
 import { addHumanPlayer, createWaitingState, drawForHuman, passHumanTurn, playHumanCard, processAiTurns, setPracticeSetting, toPublicState, type GameState } from "../lib/game";
 import { createPasswordHash, verifyPassword } from "../lib/password";
+import { isVocabularyWordKey, nextStudyLevel, STUDY_MAX_LEVEL, studyWordKey } from "../lib/study";
 
 test("password hashes can be created and verified in the Sites runtime range", async () => {
   const hash = await createPasswordHash("palabra-secreta");
@@ -154,6 +155,12 @@ test("a player may draw with a playable hand, then play the drawn card or pass",
   assert.equal(playState.discardPile.at(-1)?.id, "drawn-pan");
   assert.equal(playState.playEvents?.at(-1)?.actorId, "p1");
   assert.equal(playState.playEvents?.at(-1)?.card.word, "pan");
+});
+
+test("study progress uses vocabulary keys and advances through five levels", () => {
+  assert.equal(isVocabularyWordKey(studyWordKey("  MIÉRCOLES ")), true);
+  assert.equal(isVocabularyWordKey(studyWordKey("not-a-palabra-word")), false);
+  assert.deepEqual([0, 1, 2, 3, 4].map(nextStudyLevel), [1, 2, 3, 4, STUDY_MAX_LEVEL]);
 });
 
 test("every unique card word has a pre-generated Spanish audio file", () => {

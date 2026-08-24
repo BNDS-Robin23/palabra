@@ -42,6 +42,13 @@ export function ensureSchema() {
           created_at INTEGER NOT NULL,
           updated_at INTEGER NOT NULL
         )`),
+        db.prepare(`CREATE TABLE IF NOT EXISTS study_progress (
+          user_id TEXT NOT NULL,
+          word_key TEXT NOT NULL,
+          level INTEGER NOT NULL DEFAULT 0 CHECK (level BETWEEN 0 AND 4),
+          updated_at INTEGER NOT NULL,
+          PRIMARY KEY (user_id, word_key)
+        )`),
         db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_key ON users(username_key)"),
       ])
       .then(() => undefined)

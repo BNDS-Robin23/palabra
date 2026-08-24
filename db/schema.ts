@@ -1,4 +1,4 @@
-import { integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const users = sqliteTable(
   "users",
@@ -28,3 +28,14 @@ export const rooms = sqliteTable("rooms", {
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
 });
+
+export const studyProgress = sqliteTable(
+  "study_progress",
+  {
+    userId: text("user_id").notNull(),
+    wordKey: text("word_key").notNull(),
+    level: integer("level").notNull().default(0),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.userId, table.wordKey] })],
+);

@@ -11,6 +11,7 @@ import {
 } from "react";
 import { VOCABULARY_CATEGORIES, VOCABULARY_CATEGORY_OPTIONS } from "../lib/vocabulary";
 import { wordAudioPath } from "../lib/word-audio";
+import { nextStudyLevel, STUDY_LEVELS, studyWordKey } from "../lib/study";
 
 type User = { id: string; username: string };
 type PracticeSettings = { showChinese: boolean; showPlayedMeanings: boolean };
@@ -90,7 +91,14 @@ const STUDY_WORDS: StudyWord[] = (() => {
 })();
 
 async function readJson(response: Response) {
-  const data = (await response.json()) as { error?: string; user?: User | null; game?: GameView };
+  const data = (await response.json()) as {
+    error?: string;
+    user?: User | null;
+    game?: GameView;
+    progress?: Record<string, number>;
+    wordKey?: string;
+    level?: number;
+  };
   if (!response.ok) throw new Error(data.error ?? "请求失败，请重试。");
   return data;
 }
@@ -346,13 +354,129 @@ function Rules({ compact = false }: { compact?: boolean }) {
   );
 }
 
-function StudyDeck() {
-  const [index, setIndex] = useState(0);
-  const [flipped, setFlipped] = useState(false);
-  const [audioPlaying, setAudioPlaying] = useState(false);
-  const [audioError, setAudioError] = useState("");
+function StudyEntry({ locked = false, onOpen }: { locked?: boolean; onOpen?: () => void }) {
+  function openStudy() {
+    if (!locked) {
+      onOpen?.();
+      return;
+    }
+    const authCard = document.querySelector<HTMLElement>(".auth-card");
+    authCard?.scrollIntoView({ behavior: "smooth", block: "center" });
+    window.setTimeout(() => document.querySelector<HTMLInputElement>(".auth-card input")?.focus(), 380);
+  }
+
+  return (
+    <section className="study-entry" aria-labelledby={locked ? "guest-study-title" : "lobby-study-title"}>
+      <div className="study-entry-copy">
+        <div className="eyebrow">APRENDE POR CATEGORÍAS</div>
+        <h2 id={locked ? "guest-study-title" : "lobby-study-title"}>按类别背单词</h2>
+        <p>自由选择一个或多个主题，用五级颜色记录每个单词的熟悉程度。</p>
+        <div className="study-entry-points"><span>17 个类别</span><span>{STUDY_WORDS.length} 个单词</span><span>账号同步进度</span></div>
+      </div>
+      <div className="study-entry-action">
+        <div className="study-entry-cards" aria-hidden="true"><i>rojo</i><i>más o menos</i><i>verde</i></div>
+        <button type="button" onClick={openStudy}>{locked ? "登录后开始背词" : "进入背单词"}<span>→</span></button>
+        {locked && <small>学习进度会保存到你的 Palabra 账号</small>}
+      </div>
+    </section>
+  );
+}
+
+function StudyWordRow({
+  word,
+  zh,
+  level,
+  saving,
+  playing,
+  onIncrease,
+  onPlay,
+}: {
+  word: string;
+  zh: string;
+  level: number;
+  saving: boolean;
+  playing: boolean;
+  onIncrease: () => void;
+  onPlay: () => void;
+}) {
+  const [revealed, setRevealed] = useState(false);
+  const pointerStart = useRef<{ x: number; pointerId: number } | null>(null);
+  const swiped = useRef(false);
+  const safeLevel = Math.min(STUDY_LEVELS.length - 1, Math.max(0, level));
+  const levelInfo = STUDY_LEVELS[safeLevel];
+
+  function startSwipe(clientX: number, pointerId: number, element: HTMLElement) {
+    const bounds = element.getBoundingClientRect();
+    if (clientX < bounds.left + bounds.width / 2) return;
+    pointerStart.current = { x: clientX, pointerId };
+    try { element.setPointerCapture(pointerId); } catch { /* Pointer capture is optional. */ }
+  }
+
+  function finishSwipe(clientX: number, pointerId: number) {
+    const start = pointerStart.current;
+    pointerStart.current = null;
+    if (!start || start.pointerId !== pointerId) return;
+    const distance = clientX - start.x;
+    if (Math.abs(distance) < 44) return;
+    swiped.current = true;
+    setRevealed(distance < 0);
+  }
+
+  return (
+    <article
+      className={`study-word-card study-level-${safeLevel}${revealed ? " meaning-open" : ""}`}
+      onPointerDown={(event) => startSwipe(event.clientX, event.pointerId, event.currentTarget)}
+      onPointerUp={(event) => finishSwipe(event.clientX, event.pointerId)}
+      onPointerCancel={() => { pointerStart.current = null; }}
+      onClickCapture={(event) => {
+        if (!swiped.current) return;
+        event.preventDefault();
+        event.stopPropagation();
+        swiped.current = false;
+      }}
+    >
+      <button type="button" className="study-word-main" onClick={onIncrease} disabled={saving || safeLevel === STUDY_LEVELS.length - 1} aria-label={`${word}，${levelInfo.label}。${safeLevel === STUDY_LEVELS.length - 1 ? "已达到最高熟悉度" : "点击增加一级熟悉度"}`}>
+        <span className="study-word-number">{String(safeLevel + 1).padStart(2, "0")}</span>
+        <span className="study-word-copy">
+          <strong>{word}</strong>
+          <span className="study-word-meaning" aria-hidden={!revealed}>{zh}</span>
+        </span>
+        <span className="study-word-level"><b>{saving ? "保存中…" : levelInfo.label}</b><small>{levelInfo.description}</small></span>
+        <span className="study-level-dots" aria-hidden="true">{STUDY_LEVELS.map((_, dot) => <i className={dot <= safeLevel ? "on" : ""} key={dot} />)}</span>
+      </button>
+      <div className="study-word-actions">
+        <span className="study-swipe-cue" aria-hidden="true">← 释义 →</span>
+        <button type="button" onClick={onPlay} disabled={playing} aria-label={`播放 ${word} 的西班牙语发音`}>{playing ? "…" : "🔊"}</button>
+        <button type="button" onClick={() => setRevealed((value) => !value)} aria-label={revealed ? "隐藏中文释义" : "显示中文释义"}>{revealed ? "中 ×" : "中"}</button>
+      </div>
+    </article>
+  );
+}
+
+function StudyApp({ user, onClose }: { user: User; onClose: () => void }) {
+  const [view, setView] = useState<"categories" | "words">("categories");
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [progress, setProgress] = useState<Record<string, number>>({});
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [savingKeys, setSavingKeys] = useState<Set<string>>(() => new Set());
+  const [playingWord, setPlayingWord] = useState("");
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const current = STUDY_WORDS[index];
+
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      try {
+        const data = await readJson(await fetch("/api/study", { cache: "no-store" }));
+        if (active) setProgress(data.progress ?? {});
+      } catch (requestError) {
+        if (active) setError(requestError instanceof Error ? requestError.message : "无法读取学习进度。");
+      } finally {
+        if (active) setLoading(false);
+      }
+    })();
+    return () => { active = false; };
+  }, []);
 
   const stopAudio = useCallback(() => {
     const audio = audioRef.current;
@@ -361,94 +485,126 @@ function StudyDeck() {
       audio.pause();
       audio.currentTime = 0;
     }
-    setAudioPlaying(false);
+    setPlayingWord("");
   }, []);
 
   useEffect(() => stopAudio, [stopAudio]);
 
-  const chooseWord = useCallback((nextIndex: number) => {
-    stopAudio();
-    setFlipped(false);
-    setAudioError("");
-    setIndex(nextIndex);
-  }, [stopAudio]);
+  const selectedCategories = VOCABULARY_CATEGORIES.filter((category) => selectedIds.includes(category.id));
+  const selectedWordCount = selectedCategories.reduce((total, category) => total + category.words.length, 0);
+  const selectedMasteredCount = selectedCategories.reduce((total, category) => total + category.words.filter(([word]) => (progress[studyWordKey(word)] ?? 0) === STUDY_LEVELS.length - 1).length, 0);
 
-  function playAudio() {
+  function toggleCategory(categoryId: string) {
+    setSelectedIds((current) => current.includes(categoryId)
+      ? current.filter((id) => id !== categoryId)
+      : [...current, categoryId]);
+  }
+
+  async function increaseLevel(word: string) {
+    const wordKey = studyWordKey(word);
+    if (savingKeys.has(wordKey)) return;
+    const previousLevel = progress[wordKey] ?? 0;
+    const nextLevel = nextStudyLevel(previousLevel);
+    if (nextLevel === previousLevel) return;
+    setError("");
+    setProgress((current) => ({ ...current, [wordKey]: nextLevel }));
+    setSavingKeys((current) => new Set(current).add(wordKey));
+    try {
+      const data = await readJson(await fetch("/api/study", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ word, level: nextLevel }),
+      }));
+      setProgress((current) => ({ ...current, [wordKey]: Math.max(current[wordKey] ?? 0, data.level ?? nextLevel) }));
+    } catch (requestError) {
+      setProgress((current) => current[wordKey] === nextLevel ? { ...current, [wordKey]: previousLevel } : current);
+      setError(requestError instanceof Error ? requestError.message : "无法保存学习进度。");
+    } finally {
+      setSavingKeys((current) => {
+        const next = new Set(current);
+        next.delete(wordKey);
+        return next;
+      });
+    }
+  }
+
+  function playWord(word: string) {
     stopAudio();
-    setAudioError("");
-    const audio = new Audio(wordAudioPath(current.word));
+    setError("");
+    const audio = new Audio(wordAudioPath(word));
     audio.preload = "auto";
-    audio.volume = 1;
     audioRef.current = audio;
     const finish = () => {
       if (audioRef.current === audio) {
         audioRef.current = null;
-        setAudioPlaying(false);
+        setPlayingWord("");
       }
     };
     audio.addEventListener("ended", finish, { once: true });
     audio.addEventListener("error", () => {
       finish();
-      setAudioError("发音播放失败，请检查浏览器声音设置。");
+      setError(`无法播放“${word}”的发音。`);
     }, { once: true });
-    void audio.play().then(() => setAudioPlaying(true)).catch(() => {
+    void audio.play().then(() => setPlayingWord(word)).catch(() => {
       finish();
-      setAudioError("浏览器阻止了播放，请再点一次发音按钮。");
+      setError("浏览器阻止了发音，请再点一次声音按钮。");
     });
   }
 
-  function chooseRandomWord() {
-    const offset = STUDY_WORDS.length > 1
-      ? 1 + Math.floor(Math.random() * (STUDY_WORDS.length - 1))
-      : 0;
-    chooseWord((index + offset) % STUDY_WORDS.length);
-  }
-
   return (
-    <section className="study-deck" aria-labelledby="study-deck-title">
-      <div className="study-copy">
-        <div className="eyebrow">TARJETAS DE VOCABULARIO</div>
-        <h2 id="study-deck-title">翻一张，记住一个词</h2>
-        <p>先看西班牙语想一想，再翻面核对中文。每张卡都能播放固定的西班牙语发音。</p>
-        <div className="study-progress" aria-label={`第 ${index + 1} 个单词，共 ${STUDY_WORDS.length} 个`}>
-          <span style={{ width: `${((index + 1) / STUDY_WORDS.length) * 100}%` }} />
-        </div>
-        <small>{index + 1} / {STUDY_WORDS.length} 个单词</small>
-      </div>
-      <div className="study-workspace">
-        <button
-          type="button"
-          className={`study-card${flipped ? " flipped" : ""}`}
-          aria-label={flipped ? `中文释义：${current.zh}。点击返回西班牙语。` : `西班牙语：${current.word}。点击查看中文。`}
-          aria-pressed={flipped}
-          onClick={() => setFlipped((value) => !value)}
-        >
-          <span className="study-card-inner">
-            <span className="study-card-face study-card-front">
-              <small>ESPAÑOL</small>
-              <strong>{current.word}</strong>
-              <em>点击翻面查看中文</em>
-            </span>
-            <span className="study-card-face study-card-back">
-              <small>中文释义</small>
-              <strong>{current.zh}</strong>
-              <em>{current.categories.join(" · ")}</em>
-            </span>
-          </span>
-        </button>
-        <div className="study-controls">
-          <button type="button" className="study-sound" onClick={playAudio} disabled={audioPlaying}>
-            <span aria-hidden="true">🔊</span>{audioPlaying ? "正在播放…" : `播放“${current.word}”`}
-          </button>
-          <div className="study-nav">
-            <button type="button" onClick={() => chooseWord((index - 1 + STUDY_WORDS.length) % STUDY_WORDS.length)} aria-label="上一个单词">← <span>上一个</span></button>
-            <button type="button" onClick={chooseRandomWord}>随机一个</button>
-            <button type="button" onClick={() => chooseWord((index + 1) % STUDY_WORDS.length)} aria-label="下一个单词"><span>下一个</span> →</button>
+    <main className="study-page">
+      <header className="site-header study-header"><Brand /><div className="user-area"><span>学习者：<b>{user.username}</b></span><button type="button" onClick={onClose}>返回首页</button></div></header>
+      {view === "categories" ? (
+        <section className="study-category-shell">
+          <div className="study-page-title">
+            <div><div className="eyebrow">ELIGE TUS TEMAS</div><h1>今天想背哪些类别？</h1><p>可以选择一个或多个类别。进入后，单词会按照类别分别排列。</p></div>
+            <button type="button" className="study-select-all" onClick={() => setSelectedIds(selectedIds.length === VOCABULARY_CATEGORIES.length ? [] : VOCABULARY_CATEGORIES.map((category) => category.id))}>{selectedIds.length === VOCABULARY_CATEGORIES.length ? "清空选择" : "选择全部"}</button>
           </div>
-          <p className="study-audio-status" role="status" aria-live="polite">{audioError}</p>
-        </div>
-      </div>
-    </section>
+          {loading && <div className="study-loading" role="status">正在读取 {user.username} 的学习进度…</div>}
+          {error && <div className="form-error study-error" role="alert">{error}</div>}
+          <div className="study-category-grid">
+            {VOCABULARY_CATEGORIES.map((category, categoryIndex) => {
+              const selected = selectedIds.includes(category.id);
+              const mastered = category.words.filter(([word]) => (progress[studyWordKey(word)] ?? 0) === STUDY_LEVELS.length - 1).length;
+              return (
+                <button type="button" key={category.id} className={selected ? "selected" : ""} aria-pressed={selected} onClick={() => toggleCategory(category.id)} disabled={loading}>
+                  <span>{String(categoryIndex + 1).padStart(2, "0")}</span><div><b>{category.zh}</b><small>{category.es}</small><em>{mastered} / {category.words.length} 已掌握</em></div><i>{selected ? "✓" : "+"}</i>
+                </button>
+              );
+            })}
+          </div>
+          <div className="study-category-footer">
+            <p><b>{selectedIds.length}</b> 个类别 · <b>{selectedWordCount}</b> 张词卡</p>
+            <button type="button" onClick={() => { setView("words"); window.scrollTo({ top: 0, behavior: "smooth" }); }} disabled={selectedIds.length === 0 || loading}>开始学习 <span>→</span></button>
+          </div>
+        </section>
+      ) : (
+        <section className="study-words-shell">
+          <div className="study-words-toolbar">
+            <button type="button" onClick={() => setView("categories")}>← 重新选择类别</button>
+            <div><div className="eyebrow">MI PROGRESO</div><h1>{selectedIds.length} 个类别 · {selectedWordCount} 个单词</h1><p>已掌握 {selectedMasteredCount} 个。点击词卡提升熟悉度；从卡片右半部分左滑显示中文，右滑收起。</p></div>
+          </div>
+          <div className="study-level-legend" aria-label="五级熟悉度颜色说明">{STUDY_LEVELS.map((level, index) => <span className={`study-level-${index}`} key={level.label}><i />{level.label}</span>)}</div>
+          {error && <div className="form-error study-error" role="alert">{error}</div>}
+          <div className="study-category-sections">
+            {selectedCategories.map((category) => {
+              const mastered = category.words.filter(([word]) => (progress[studyWordKey(word)] ?? 0) === STUDY_LEVELS.length - 1).length;
+              return (
+                <section className="study-word-category" key={category.id} aria-labelledby={`study-${category.id}`}>
+                  <header><div><span>{category.es}</span><h2 id={`study-${category.id}`}>{category.zh}</h2></div><p><b>{mastered}</b> / {category.words.length} 已掌握</p></header>
+                  <div className="study-word-list">
+                    {category.words.map(([word, zh]) => {
+                      const wordKey = studyWordKey(word);
+                      return <StudyWordRow key={`${category.id}:${word}`} word={word} zh={zh} level={progress[wordKey] ?? 0} saving={savingKeys.has(wordKey)} playing={playingWord === word} onIncrease={() => increaseLevel(word)} onPlay={() => playWord(word)} />;
+                    })}
+                  </div>
+                </section>
+              );
+            })}
+          </div>
+        </section>
+      )}
+    </main>
   );
 }
 
@@ -507,13 +663,13 @@ function AuthScreen({ onAuthenticated }: { onAuthenticated: (user: User) => void
           <p className="auth-note">仅使用用户名和密码 · 不需要邮箱 · 不需要 ChatGPT 账号</p>
         </section>
       </div>
-      <div className="auth-study-band"><StudyDeck /></div>
+      <div className="auth-study-band"><StudyEntry locked /></div>
       <Rules compact />
     </main>
   );
 }
 
-function Lobby({ user, onGame, onLogout }: { user: User; onGame: (game: GameView) => void; onLogout: () => void }) {
+function Lobby({ user, onGame, onLogout, onStudy }: { user: User; onGame: (game: GameView) => void; onLogout: () => void; onStudy: () => void }) {
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -561,7 +717,7 @@ function Lobby({ user, onGame, onLogout }: { user: User; onGame: (game: GameView
           <div className="eyebrow">LISTO PARA JUGAR</div>
           <h1>今天，想用哪个词<br />赢下这一局？</h1>
           <p className="lobby-intro">创建一个新房间，或输入朋友分享的 6 位房间号。开局前可以随时补充 AI 玩家。</p>
-          <StudyDeck />
+          <StudyEntry onOpen={onStudy} />
           <section className="category-picker" aria-label="选择本局词汇类别">
             <div className="category-picker-head">
               <div><b>选择本局的 6 个类别</b><small>{selectedCategoryIds.length === 0 ? "不选择则由系统随机抽取六类" : `已选择 ${selectedCategoryIds.length} / 6`}</small></div>
@@ -815,6 +971,7 @@ export function GameClient() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [studyOpen, setStudyOpen] = useState(false);
   const pollBusy = useRef(false);
   const gameAudio = useGameAudio(game?.status === "playing" || game?.status === "finished");
 
@@ -888,6 +1045,7 @@ export function GameClient() {
     setUser(null);
     setGame(null);
     setNotice("");
+    setStudyOpen(false);
     window.history.replaceState({}, "", "/");
   }
 
@@ -929,7 +1087,8 @@ export function GameClient() {
 
   if (!authReady) return <div className="loading-screen"><Brand /><span>正在摆好牌桌…</span></div>;
   if (!user) return <AuthScreen onAuthenticated={setUser} />;
-  if (!game) return <Lobby user={user} onGame={enterGame} onLogout={logout} />;
+  if (studyOpen) return <StudyApp user={user} onClose={() => setStudyOpen(false)} />;
+  if (!game) return <Lobby user={user} onGame={enterGame} onLogout={logout} onStudy={() => setStudyOpen(true)} />;
   if (game.status === "waiting") return <WaitingRoom game={game} user={user} onAction={gameAction} onLeave={leave} busy={busy} error={error} />;
   return <GameTable game={game} onAction={gameAction} onLeave={leave} busy={busy} error={error} notice={notice} audioError={gameAudio.audioError} audioReady={gameAudio.audioReady} bgmEnabled={gameAudio.bgmEnabled} speechEnabled={gameAudio.speechEnabled} onToggleBgm={gameAudio.toggleBgm} onToggleSpeech={gameAudio.toggleSpeech} onUnlockAudio={gameAudio.unlockAudio} speakWord={gameAudio.speakWord} />;
 }
