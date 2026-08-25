@@ -1,6 +1,7 @@
 import { ensureSchema, getD1 } from "../../../db";
 import { getSessionUser } from "../../../lib/auth";
 import { isVocabularyWordKey, STUDY_MAX_LEVEL, studyWordKey } from "../../../lib/study";
+import { recordAnalyticsEvent } from "../../../lib/analytics";
 
 type StudyPayload = {
   word?: string;
@@ -53,6 +54,7 @@ export async function PUT(request: Request) {
     const saved = await getD1().prepare(
       "SELECT level FROM study_progress WHERE user_id = ? AND word_key = ?",
     ).bind(user.id, wordKey).first<{ level: number }>();
+    await recordAnalyticsEvent(user.id, "study", "word_level_up", { wordKey, level: saved?.level ?? level });
     return Response.json({ wordKey, level: saved?.level ?? level });
   } catch (error) {
     return Response.json({ error: message(error) }, { status: 500 });

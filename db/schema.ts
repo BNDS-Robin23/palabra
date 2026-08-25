@@ -1,4 +1,4 @@
-import { integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { index, integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const users = sqliteTable(
   "users",
@@ -38,4 +38,43 @@ export const studyProgress = sqliteTable(
     updatedAt: integer("updated_at").notNull(),
   },
   (table) => [primaryKey({ columns: [table.userId, table.wordKey] })],
+);
+
+export const appAdmins = sqliteTable("app_admins", {
+  userId: text("user_id").primaryKey(),
+  createdAt: integer("created_at").notNull(),
+});
+
+export const analyticsEvents = sqliteTable(
+  "analytics_events",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    userId: text("user_id").notNull(),
+    feature: text("feature").notNull(),
+    eventName: text("event_name").notNull(),
+    metadataJson: text("metadata_json"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [
+    index("idx_analytics_events_created_at").on(table.createdAt),
+    index("idx_analytics_events_user_created").on(table.userId, table.createdAt),
+    index("idx_analytics_events_feature_created").on(table.feature, table.createdAt),
+  ],
+);
+
+export const analyticsSessions = sqliteTable(
+  "analytics_sessions",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id").notNull(),
+    feature: text("feature").notNull(),
+    startedAt: integer("started_at").notNull(),
+    lastSeenAt: integer("last_seen_at").notNull(),
+    activeSeconds: integer("active_seconds").notNull().default(0),
+    endedAt: integer("ended_at"),
+  },
+  (table) => [
+    index("idx_analytics_sessions_user_started").on(table.userId, table.startedAt),
+    index("idx_analytics_sessions_feature_started").on(table.feature, table.startedAt),
+  ],
 );

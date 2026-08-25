@@ -1,5 +1,6 @@
 import { ensureSchema, getD1 } from "../../../db";
 import { getSessionUser, type SessionUser } from "../../../lib/auth";
+import { recordAnalyticsEvent } from "../../../lib/analytics";
 import {
   addAiPlayer,
   addHumanPlayer,
@@ -118,6 +119,7 @@ export async function POST(request: Request) {
              VALUES (?, ?, 'waiting', ?, 1, ?, ?)`,
           ).bind(code, user.id, JSON.stringify(state), now, now).run();
           const room: RoomRow = { code, hostUserId: user.id, status: "waiting", stateJson: JSON.stringify(state), version: 1 };
+          await recordAnalyticsEvent(user.id, "waiting_room", "room_create", { mode, categoryCount: state.categoryIds?.length ?? 0 });
           return roomResponse(room, state, 1, user);
         } catch {
           // Extremely rare room-code collision; generate another code.
@@ -134,10 +136,13 @@ export async function POST(request: Request) {
       addHumanPlayer(state, user.id, user.username);
       const alreadySaved = room.stateJson === JSON.stringify(state);
       const version = alreadySaved ? room.version : await saveRoom(room, state);
+      await recordAnalyticsEvent(user.id, "waiting_room", "room_join", { mode: state.mode, status: state.status });
       return roomResponse(room, state, version, user);
     }
 
     const playerId = viewerPlayerId(state, user);
+    const statusBeforeAction = state.status;
+    let startedGame = false;
     if (payload.action === "add_ai") {
       if (room.hostUserId !== user.id) throw new Error("只有房主可以添加 AI。");
       addAiPlayer(state);
@@ -153,6 +158,7 @@ export async function POST(request: Request) {
       if (room.hostUserId !== user.id) throw new Error("只有房主可以开始牌局。");
       startGame(state);
       processAiTurns(state);
+      startedGame = true;
     } else if (payload.action === "play") {
       if (!payload.cardId) throw new Error("请选择一张牌。");
       playHumanCard(state, playerId, payload.cardId);
@@ -167,6 +173,13 @@ export async function POST(request: Request) {
     }
 
     const version = await saveRoom(room, state);
+    const gameFeature = state.mode === "practice" ? "practice_game" : "normal_game";
+    if (startedGame) {
+      await recordAnalyticsEvent(user.id, gameFeature, "game_start", { playerCount: state.players.length });
+    }
+    if (statusBeforeAction !== "finished" && state.status === "finished") {
+      await recordAnalyticsEvent(user.id, gameFeature, "game_finish", { playerCount: state.players.length });
+    }
     return roomResponse(room, state, version, user);
   } catch (error) {
     const text = errorMessage(error);

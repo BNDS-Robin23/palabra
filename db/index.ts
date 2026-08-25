@@ -49,9 +49,41 @@ export function ensureSchema() {
           updated_at INTEGER NOT NULL,
           PRIMARY KEY (user_id, word_key)
         )`),
+        db.prepare(`CREATE TABLE IF NOT EXISTS app_admins (
+          user_id TEXT PRIMARY KEY,
+          created_at INTEGER NOT NULL
+        )`),
+        db.prepare(`CREATE TABLE IF NOT EXISTS analytics_events (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id TEXT NOT NULL,
+          feature TEXT NOT NULL,
+          event_name TEXT NOT NULL,
+          metadata_json TEXT,
+          created_at INTEGER NOT NULL
+        )`),
+        db.prepare(`CREATE TABLE IF NOT EXISTS analytics_sessions (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL,
+          feature TEXT NOT NULL,
+          started_at INTEGER NOT NULL,
+          last_seen_at INTEGER NOT NULL,
+          active_seconds INTEGER NOT NULL DEFAULT 0,
+          ended_at INTEGER
+        )`),
         db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_key ON users(username_key)"),
+        db.prepare("CREATE INDEX IF NOT EXISTS idx_analytics_events_created_at ON analytics_events(created_at)"),
+        db.prepare("CREATE INDEX IF NOT EXISTS idx_analytics_events_user_created ON analytics_events(user_id, created_at)"),
+        db.prepare("CREATE INDEX IF NOT EXISTS idx_analytics_events_feature_created ON analytics_events(feature, created_at)"),
+        db.prepare("CREATE INDEX IF NOT EXISTS idx_analytics_sessions_user_started ON analytics_sessions(user_id, started_at)"),
+        db.prepare("CREATE INDEX IF NOT EXISTS idx_analytics_sessions_feature_started ON analytics_sessions(feature, started_at)"),
       ])
-      .then(() => undefined)
+      .then(async () => {
+        await db.prepare(
+          `INSERT OR IGNORE INTO app_admins (user_id, created_at)
+           SELECT id, ? FROM users WHERE username_key = 'robin'`,
+        ).bind(Math.floor(Date.now() / 1000)).run();
+        await db.prepare("PRAGMA optimize").run();
+      })
       .catch((error: unknown) => {
         schemaReady = null;
         throw error;

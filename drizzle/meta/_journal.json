@@ -15,6 +15,13 @@
       "when": 1787587659638,
       "tag": "0001_fantastic_absorbing_man",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1787677780044,
+      "tag": "0002_stale_trauma",
+      "breakpoints": true
     }
   ]
 }

@@ -4,7 +4,7 @@ export { createPasswordHash, verifyPassword } from "./password";
 const COOKIE_NAME = "palabra_session";
 const SESSION_SECONDS = 60 * 60 * 24 * 30;
 
-export type SessionUser = { id: string; username: string };
+export type SessionUser = { id: string; username: string; isAdmin: boolean };
 
 function bytesToHex(bytes: Uint8Array) {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -47,11 +47,21 @@ export async function getSessionUser(request: Request): Promise<SessionUser | nu
   if (!token) return null;
   const tokenHash = await sha256(token);
   const now = Math.floor(Date.now() / 1000);
-  return getD1().prepare(
-    `SELECT users.id, users.username
-     FROM sessions JOIN users ON users.id = sessions.user_id
+  const user = await getD1().prepare(
+    `SELECT users.id, users.username,
+            CASE WHEN app_admins.user_id IS NULL THEN 0 ELSE 1 END AS isAdmin
+     FROM sessions
+     JOIN users ON users.id = sessions.user_id
+     LEFT JOIN app_admins ON app_admins.user_id = users.id
      WHERE sessions.token_hash = ? AND sessions.expires_at > ?`,
-  ).bind(tokenHash, now).first<SessionUser>();
+  ).bind(tokenHash, now).first<{ id: string; username: string; isAdmin: number }>();
+  return user ? { id: user.id, username: user.username, isAdmin: user.isAdmin === 1 } : null;
+}
+
+export async function isAdminUser(userId: string) {
+  const row = await getD1().prepare("SELECT 1 AS allowed FROM app_admins WHERE user_id = ?")
+    .bind(userId).first<{ allowed: number }>();
+  return row?.allowed === 1;
 }
 
 export async function deleteSession(request: Request) {

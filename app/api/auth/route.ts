@@ -4,10 +4,12 @@ import {
   createSession,
   deleteSession,
   getSessionUser,
+  isAdminUser,
   normalizeUsername,
   validUsername,
   verifyPassword,
 } from "../../../lib/auth";
+import { recordAnalyticsEvent } from "../../../lib/analytics";
 
 type AuthPayload = {
   action?: "register" | "login" | "logout";
@@ -63,8 +65,9 @@ export async function POST(request: Request) {
       } catch {
         return Response.json({ error: "这个用户名已经被使用。" }, { status: 409 });
       }
+      await recordAnalyticsEvent(id, "auth", "register");
       const cookie = await createSession(id, request);
-      return Response.json({ user: { id, username } }, { status: 201, headers: { "Set-Cookie": cookie } });
+      return Response.json({ user: { id, username, isAdmin: false } }, { status: 201, headers: { "Set-Cookie": cookie } });
     }
 
     if (payload.action === "login") {
@@ -74,9 +77,10 @@ export async function POST(request: Request) {
       if (!user || !(await verifyPassword(password, user.passwordHash))) {
         return Response.json({ error: "用户名或密码不正确。" }, { status: 401 });
       }
+      await recordAnalyticsEvent(user.id, "auth", "login");
       const cookie = await createSession(user.id, request);
       return Response.json(
-        { user: { id: user.id, username: user.username } },
+        { user: { id: user.id, username: user.username, isAdmin: await isAdminUser(user.id) } },
         { headers: { "Set-Cookie": cookie } },
       );
     }

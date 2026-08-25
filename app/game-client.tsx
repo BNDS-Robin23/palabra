@@ -13,7 +13,7 @@ import { VOCABULARY_CATEGORIES, VOCABULARY_CATEGORY_OPTIONS } from "../lib/vocab
 import { wordAudioPath } from "../lib/word-audio";
 import { nextStudyLevel, STUDY_LEVELS, studyWordKey } from "../lib/study";
 
-type User = { id: string; username: string };
+type User = { id: string; username: string; isAdmin: boolean };
 type PracticeSettings = { showChinese: boolean; showPlayedMeanings: boolean };
 type ClientCard = {
   id: string;
@@ -101,6 +101,90 @@ async function readJson(response: Response) {
   };
   if (!response.ok) throw new Error(data.error ?? "请求失败，请重试。");
   return data;
+}
+
+type ClientAnalyticsFeature = "lobby" | "study" | "waiting_room" | "normal_game" | "practice_game";
+
+function sendAnalytics(payload: Record<string, unknown>) {
+  return fetch("/api/analytics", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+    keepalive: true,
+  });
+}
+
+function trackClientAnalyticsEvent(
+  feature: ClientAnalyticsFeature,
+  eventName: "study_categories_selected" | "audio_play",
+  metadata?: Record<string, unknown>,
+) {
+  void sendAnalytics({ action: "event", feature, eventName, metadata }).catch(() => undefined);
+}
+
+function useFeatureSession(feature: ClientAnalyticsFeature | null) {
+  useEffect(() => {
+    if (!feature) return;
+    let disposed = false;
+    let sessionId = "";
+    let starting = false;
+    let lastActivity = Date.now();
+
+    const start = async () => {
+      if (disposed || starting || sessionId || document.visibilityState === "hidden") return;
+      starting = true;
+      try {
+        const response = await sendAnalytics({ action: "start", feature });
+        const data = await response.json() as { sessionId?: string };
+        if (!response.ok || !data.sessionId) return;
+        if (disposed || document.visibilityState === "hidden") {
+          void sendAnalytics({ action: "end", sessionId: data.sessionId }).catch(() => undefined);
+        } else {
+          sessionId = data.sessionId;
+        }
+      } catch {
+        // Usage tracking is non-critical.
+      } finally {
+        starting = false;
+      }
+    };
+
+    const finish = () => {
+      const endingSessionId = sessionId;
+      sessionId = "";
+      if (endingSessionId) {
+        void sendAnalytics({ action: "end", sessionId: endingSessionId }).catch(() => undefined);
+      }
+    };
+
+    const noteActivity = () => { lastActivity = Date.now(); };
+    const handleVisibility = () => {
+      if (document.visibilityState === "hidden") finish();
+      else {
+        lastActivity = Date.now();
+        void start();
+      }
+    };
+    const heartbeat = () => {
+      if (sessionId && document.visibilityState === "visible" && Date.now() - lastActivity <= 5 * 60 * 1000) {
+        void sendAnalytics({ action: "heartbeat", sessionId }).catch(() => undefined);
+      }
+    };
+
+    window.addEventListener("pointerdown", noteActivity, { passive: true });
+    window.addEventListener("keydown", noteActivity);
+    document.addEventListener("visibilitychange", handleVisibility);
+    const timer = window.setInterval(heartbeat, 20_000);
+    void start();
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+      window.removeEventListener("pointerdown", noteActivity);
+      window.removeEventListener("keydown", noteActivity);
+      document.removeEventListener("visibilitychange", handleVisibility);
+      finish();
+    };
+  }, [feature]);
 }
 
 function useGameAudio(active: boolean) {
@@ -545,7 +629,10 @@ function StudyApp({ user, onClose }: { user: User; onClose: () => void }) {
       finish();
       setError(`无法播放“${word}”的发音。`);
     }, { once: true });
-    void audio.play().then(() => setPlayingWord(word)).catch(() => {
+    void audio.play().then(() => {
+      setPlayingWord(word);
+      trackClientAnalyticsEvent("study", "audio_play", { wordKey: studyWordKey(word) });
+    }).catch(() => {
       finish();
       setError("浏览器阻止了发音，请再点一次声音按钮。");
     });
@@ -575,7 +662,7 @@ function StudyApp({ user, onClose }: { user: User; onClose: () => void }) {
           </div>
           <div className="study-category-footer">
             <p><b>{selectedIds.length}</b> 个类别 · <b>{selectedWordCount}</b> 张词卡</p>
-            <button type="button" onClick={() => { setView("words"); window.scrollTo({ top: 0, behavior: "smooth" }); }} disabled={selectedIds.length === 0 || loading}>开始学习 <span>→</span></button>
+            <button type="button" onClick={() => { trackClientAnalyticsEvent("study", "study_categories_selected", { categoryIds: selectedIds }); setView("words"); window.scrollTo({ top: 0, behavior: "smooth" }); }} disabled={selectedIds.length === 0 || loading}>开始学习 <span>→</span></button>
           </div>
         </section>
       ) : (
@@ -711,7 +798,7 @@ function Lobby({ user, onGame, onLogout, onStudy }: { user: User; onGame: (game:
 
   return (
     <main className="lobby-shell">
-      <header className="site-header"><Brand /><div className="user-area"><span>Hola, <b>{user.username}</b></span><button onClick={onLogout}>退出</button></div></header>
+      <header className="site-header"><Brand /><div className="user-area"><span>Hola, <b>{user.username}</b></span>{user.isAdmin && <a href="/admin/analytics">数据中心</a>}<button onClick={onLogout}>退出</button></div></header>
       <div className="lobby-grid">
         <section className="lobby-main">
           <div className="eyebrow">LISTO PARA JUGAR</div>
@@ -974,6 +1061,16 @@ export function GameClient() {
   const [studyOpen, setStudyOpen] = useState(false);
   const pollBusy = useRef(false);
   const gameAudio = useGameAudio(game?.status === "playing" || game?.status === "finished");
+  const analyticsFeature: ClientAnalyticsFeature | null = !user
+    ? null
+    : studyOpen
+      ? "study"
+      : !game
+        ? "lobby"
+        : game.status === "waiting"
+          ? "waiting_room"
+          : game.mode === "practice" ? "practice_game" : "normal_game";
+  useFeatureSession(analyticsFeature);
 
   const enterGame = useCallback((nextGame: GameView) => {
     setGame(nextGame);

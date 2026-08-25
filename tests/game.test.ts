@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 import { ACTION_CARDS, WORD_POOL, buildDeck, cardsMatch, type GameCard } from "../lib/cards";
+import { isAnalyticsEvent, isAnalyticsFeature } from "../lib/analytics-definitions";
 import { VOCABULARY_CATEGORIES } from "../lib/vocabulary";
 import { wordAudioFileName } from "../lib/word-audio";
 import { addHumanPlayer, createWaitingState, drawForHuman, passHumanTurn, playHumanCard, processAiTurns, setPracticeSetting, toPublicState, type GameState } from "../lib/game";
@@ -155,6 +156,13 @@ test("a player may draw with a playable hand, then play the drawn card or pass",
   assert.equal(playState.discardPile.at(-1)?.id, "drawn-pan");
   assert.equal(playState.playEvents?.at(-1)?.actorId, "p1");
   assert.equal(playState.playEvents?.at(-1)?.card.word, "pan");
+});
+
+test("analytics only accepts the product's known features and events", () => {
+  assert.equal(isAnalyticsFeature("study"), true);
+  assert.equal(isAnalyticsFeature("admin"), false);
+  assert.equal(isAnalyticsEvent("room_create"), true);
+  assert.equal(isAnalyticsEvent("password_viewed"), false);
 });
 
 test("study progress uses vocabulary keys and advances through five levels", () => {
