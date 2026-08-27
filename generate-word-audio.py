@@ -21,7 +21,7 @@ except ImportError:
 PROJECT_ROOT = Path(__file__).resolve().parent
 VOCABULARY_FILE = PROJECT_ROOT / "lib" / "vocabulary.ts"
 OUTPUT_DIR = PROJECT_ROOT / "public" / "audio" / "words"
-EXTRA_WORDS = ("saltar", "girar", "doble", "¡Hola!", "¡Vamos!")
+EXTRA_WORDS = ("saltar", "girar", "doble", "cambiar", "¡Hola!", "¡Vamos!")
 DEFAULT_VOICE = "es-ES-ElviraNeural"
 
 

@@ -25,3 +25,7 @@ export function isVocabularyWordKey(wordKey: string) {
 export function nextStudyLevel(level: number) {
   return Math.min(STUDY_MAX_LEVEL, Math.max(0, Math.trunc(level)) + 1);
 }
+
+export function previousStudyLevel(level: number) {
+  return Math.max(0, Math.min(STUDY_MAX_LEVEL, Math.trunc(level)) - 1);
+}

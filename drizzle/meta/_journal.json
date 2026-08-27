@@ -22,6 +22,13 @@
       "when": 1787677780044,
       "tag": "0002_stale_trauma",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1787845835832,
+      "tag": "0003_late_phalanx",
+      "breakpoints": true
     }
   ]
 }

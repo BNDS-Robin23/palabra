@@ -44,18 +44,23 @@ export async function PUT(request: Request) {
     }
 
     const now = Math.floor(Date.now() / 1000);
+    const previous = await getD1().prepare(
+      "SELECT level FROM study_progress WHERE user_id = ? AND word_key = ?",
+    ).bind(user.id, wordKey).first<{ level: number }>();
     await getD1().prepare(
       `INSERT INTO study_progress (user_id, word_key, level, updated_at)
        VALUES (?, ?, ?, ?)
        ON CONFLICT(user_id, word_key) DO UPDATE SET
-         level = MAX(study_progress.level, excluded.level),
+         level = excluded.level,
          updated_at = excluded.updated_at`,
     ).bind(user.id, wordKey, level, now).run();
-    const saved = await getD1().prepare(
-      "SELECT level FROM study_progress WHERE user_id = ? AND word_key = ?",
-    ).bind(user.id, wordKey).first<{ level: number }>();
-    await recordAnalyticsEvent(user.id, "study", "word_level_up", { wordKey, level: saved?.level ?? level });
-    return Response.json({ wordKey, level: saved?.level ?? level });
+    const previousLevel = previous?.level ?? 0;
+    if (level! > previousLevel) {
+      await recordAnalyticsEvent(user.id, "study", "word_level_up", { wordKey, level });
+    } else if (level! < previousLevel) {
+      await recordAnalyticsEvent(user.id, "study", "word_level_down", { wordKey, level });
+    }
+    return Response.json({ wordKey, level });
   } catch (error) {
     return Response.json({ error: message(error) }, { status: 500 });
   }

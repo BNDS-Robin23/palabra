@@ -1,6 +1,6 @@
 import { VOCABULARY_CATEGORIES } from "./vocabulary";
 
-export type ActionKind = "skip" | "reverse" | "draw2";
+export type ActionKind = "skip" | "reverse" | "draw2" | "wild";
 export type CardColor = "red" | "yellow" | "blue" | "green";
 
 export type GameCard = {
@@ -14,7 +14,7 @@ export type GameCard = {
   action?: ActionKind;
 };
 
-const COLORS: CardColor[] = ["red", "yellow", "blue", "green"];
+export const COLORS: CardColor[] = ["red", "yellow", "blue", "green"];
 export const GAME_CATEGORY_COUNT = 6;
 export const WORD_CARD_COUNT = 108;
 
@@ -54,16 +54,25 @@ const actionSeeds: Array<[ActionKind, string, string]> = [
   ["draw2", "doble", "加二"],
 ];
 
-export const ACTION_CARDS: GameCard[] = actionSeeds.flatMap(([action, word, zh]) =>
-  COLORS.map((color) => ({
-    id: `a-${action}-${color}`,
-    word,
-    zh,
+export const ACTION_CARDS: GameCard[] = [
+  ...actionSeeds.flatMap(([action, word, zh]) =>
+    COLORS.map((color) => ({
+      id: `a-${action}-${color}`,
+      word,
+      zh,
+      kind: "action" as const,
+      action,
+      color,
+    })),
+  ),
+  ...Array.from({ length: 4 }, (_, index) => ({
+    id: `a-wild-${index + 1}`,
+    word: "cambiar",
+    zh: "换色",
     kind: "action" as const,
-    action,
-    color,
+    action: "wild" as const,
   })),
-);
+];
 
 function randomIndex(max: number) {
   const random = new Uint32Array(1);
@@ -140,6 +149,8 @@ function sharesGroup(a: GameCard, b: GameCard) {
 }
 
 export function cardsMatch(a: GameCard, b: GameCard) {
+  if (a.action === "wild") return true;
+  if (b.action === "wild") return !!a.color && a.color === b.color;
   if (a.kind === "action" || b.kind === "action") {
     return !!a.color && a.color === b.color;
   }
@@ -158,6 +169,7 @@ export function canPlayCard(
 }
 
 export function matchReason(a: GameCard, b: GameCard) {
+  if (a.action === "wild") return "换色牌";
   if (a.kind === "action" || b.kind === "action") return "功能牌";
   if (a.color && a.color === b.color) return "颜色相同";
   if (sharesGroup(a, b)) return "类别相同";

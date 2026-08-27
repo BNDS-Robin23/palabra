@@ -47,6 +47,7 @@ const EVENT_NAMES: Record<string, string> = {
   login: "登录成功",
   study_categories_selected: "开始类别学习",
   word_level_up: "提升单词熟悉度",
+  word_level_down: "降低单词熟悉度",
   audio_play: "播放单词发音",
   room_create: "创建房间",
   room_join: "加入房间",

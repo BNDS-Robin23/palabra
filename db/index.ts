@@ -71,6 +71,7 @@ export function ensureSchema() {
           ended_at INTEGER
         )`),
         db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_key ON users(username_key)"),
+        db.prepare("CREATE INDEX IF NOT EXISTS idx_rooms_status_updated_at ON rooms(status, updated_at)"),
         db.prepare("CREATE INDEX IF NOT EXISTS idx_analytics_events_created_at ON analytics_events(created_at)"),
         db.prepare("CREATE INDEX IF NOT EXISTS idx_analytics_events_user_created ON analytics_events(user_id, created_at)"),
         db.prepare("CREATE INDEX IF NOT EXISTS idx_analytics_events_feature_created ON analytics_events(feature, created_at)"),

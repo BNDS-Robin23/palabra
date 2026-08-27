@@ -8,7 +8,7 @@ import { VOCABULARY_CATEGORIES } from "../lib/vocabulary";
 import { wordAudioFileName } from "../lib/word-audio";
 import { addHumanPlayer, createWaitingState, drawForHuman, passHumanTurn, playHumanCard, processAiTurns, setPracticeSetting, toPublicState, type GameState } from "../lib/game";
 import { createPasswordHash, verifyPassword } from "../lib/password";
-import { isVocabularyWordKey, nextStudyLevel, STUDY_MAX_LEVEL, studyWordKey } from "../lib/study";
+import { isVocabularyWordKey, nextStudyLevel, previousStudyLevel, STUDY_MAX_LEVEL, studyWordKey } from "../lib/study";
 
 test("password hashes can be created and verified in the Sites runtime range", async () => {
   const hash = await createPasswordHash("palabra-secreta");
@@ -16,19 +16,20 @@ test("password hashes can be created and verified in the Sites runtime range", a
   assert.equal(await verifyPassword("otra-clave", hash), false);
 });
 
-test("each game builds a 120-card deck from exactly six categories", () => {
+test("each game builds a 124-card deck from exactly six categories", () => {
   const categoryIds = VOCABULARY_CATEGORIES.slice(0, 6).map((category) => category.id);
   const deck = buildDeck(categoryIds);
   assert.equal(VOCABULARY_CATEGORIES.length, 17);
   assert.ok(WORD_POOL.length > 250);
-  assert.equal(deck.length, 120);
+  assert.equal(deck.length, 124);
   assert.equal(deck.filter((card) => card.kind === "word").length, 108);
-  assert.equal(deck.filter((card) => card.kind === "action").length, 12);
+  assert.equal(deck.filter((card) => card.kind === "action").length, 16);
+  assert.equal(deck.filter((card) => card.action === "wild").length, 4);
   for (const card of deck.filter((item) => item.kind === "word")) {
     assert.ok(["red", "yellow", "blue", "green"].includes(card.color ?? ""));
     assert.ok(card.groups?.every((group) => categoryIds.includes(group)));
   }
-  assert.equal(new Set(deck.map((card) => card.id)).size, 120);
+  assert.equal(new Set(deck.map((card) => card.id)).size, 124);
 });
 
 test("room creation keeps six selected categories or chooses six at random", () => {
@@ -158,6 +159,35 @@ test("a player may draw with a playable hand, then play the drawn card or pass",
   assert.equal(playState.playEvents?.at(-1)?.card.word, "pan");
 });
 
+test("wild cards can always be played and enforce their selected color afterward", () => {
+  const wild = ACTION_CARDS.find((card) => card.action === "wild")!;
+  const redWord: GameCard = { id: "red-word", word: "pan", zh: "面包", kind: "word", groups: ["alimentos"], color: "red" };
+  const blueWord: GameCard = { ...redWord, id: "blue-word", color: "blue" };
+  assert.equal(cardsMatch(wild, redWord), true);
+  const playedWild = { ...wild, color: "blue" as const };
+  assert.equal(cardsMatch(blueWord, playedWild), true);
+  assert.equal(cardsMatch(redWord, playedWild), false);
+});
+
+test("a human must choose a color when playing a wild card", () => {
+  const wild = { ...ACTION_CARDS.find((card) => card.action === "wild")! };
+  const pan = { ...WORD_POOL.find((card) => card.word === "pan")!, color: "red" as const };
+  const mano = { ...WORD_POOL.find((card) => card.word === "mano")!, color: "green" as const };
+  const state: GameState = {
+    players: [
+      { id: "p1", name: "Ana", type: "human", userId: "u1", hand: [wild, mano] },
+      { id: "p2", name: "Luis", type: "human", userId: "u2", hand: [pan] },
+    ],
+    drawPile: [], discardPile: [pan], currentIndex: 0, direction: 1,
+    status: "playing", firstMove: false, sequence: 0, logs: [],
+  };
+  assert.throws(() => playHumanCard(state, "p1", wild.id), /请选择换色牌/);
+  assert.equal(state.players[0].hand.length, 2);
+  playHumanCard(state, "p1", wild.id, "blue");
+  assert.equal(state.discardPile.at(-1)?.color, "blue");
+  assert.equal(state.currentIndex, 1);
+});
+
 test("analytics only accepts the product's known features and events", () => {
   assert.equal(isAnalyticsFeature("study"), true);
   assert.equal(isAnalyticsFeature("admin"), false);
@@ -169,6 +199,7 @@ test("study progress uses vocabulary keys and advances through five levels", () 
   assert.equal(isVocabularyWordKey(studyWordKey("  MIÉRCOLES ")), true);
   assert.equal(isVocabularyWordKey(studyWordKey("not-a-palabra-word")), false);
   assert.deepEqual([0, 1, 2, 3, 4].map(nextStudyLevel), [1, 2, 3, 4, STUDY_MAX_LEVEL]);
+  assert.deepEqual([0, 1, 2, 3, 4].map(previousStudyLevel), [0, 0, 1, 2, 3]);
 });
 
 test("every unique card word has a pre-generated Spanish audio file", () => {

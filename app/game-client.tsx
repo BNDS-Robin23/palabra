@@ -5,22 +5,22 @@ import {
   FormEvent,
   useCallback,
   useEffect,
-  useLayoutEffect,
   useRef,
   useState,
 } from "react";
 import { VOCABULARY_CATEGORIES, VOCABULARY_CATEGORY_OPTIONS } from "../lib/vocabulary";
 import { wordAudioPath } from "../lib/word-audio";
-import { nextStudyLevel, STUDY_LEVELS, studyWordKey } from "../lib/study";
+import { nextStudyLevel, previousStudyLevel, STUDY_LEVELS, studyWordKey } from "../lib/study";
 
 type User = { id: string; username: string; isAdmin: boolean };
 type PracticeSettings = { showChinese: boolean; showPlayedMeanings: boolean };
+type CardColor = "red" | "yellow" | "blue" | "green";
 type ClientCard = {
   id: string;
   word: string;
   kind: "word" | "action";
-  color?: "red" | "yellow" | "blue" | "green";
-  action?: "skip" | "reverse" | "draw2";
+  color?: CardColor;
+  action?: "skip" | "reverse" | "draw2" | "wild";
   zh?: string;
   categories?: string[];
 };
@@ -61,6 +61,16 @@ type GameView = {
   logs: Array<{ id: number; text: string; tone: string }>;
 };
 
+type RoomSummary = {
+  code: string;
+  mode: "normal" | "practice";
+  status: "waiting" | "playing";
+  playerCount: number;
+  hostName: string;
+  updatedAt: number;
+  canJoin: boolean;
+};
+
 type FlightStyle = CSSProperties & {
   "--play-from-x": string;
   "--play-from-y": string;
@@ -98,6 +108,7 @@ async function readJson(response: Response) {
     progress?: Record<string, number>;
     wordKey?: string;
     level?: number;
+    rooms?: RoomSummary[];
   };
   if (!response.ok) throw new Error(data.error ?? "请求失败，请重试。");
   return data;
@@ -430,7 +441,7 @@ function Rules({ compact = false }: { compact?: boolean }) {
         <div><span>01</span><p><b>同类别</b>例如 <i>pan</i> 和 <i>arroz</i> 都属于食物，可以接牌。</p></div>
         <div><span>02</span><p><b>同颜色</b>红、黄、蓝、绿中颜色相同，也可以直接出牌。</p></div>
         <div><span>03</span><p><b>自由摸牌</b>有牌可出也能摸；之后可打出刚摸的牌，或结束回合。</p></div>
-        <div><span>04</span><p><b>功能牌看颜色</b>功能牌也要与桌面牌同色，且最后一张必须是普通词牌。</p></div>
+        <div><span>04</span><p><b>功能牌与换色</b>普通功能牌要同色；换色牌可随时打出并指定新颜色。最后一张仍须是词牌。</p></div>
       </div>
       {!compact && <p className="probability"><strong>17</strong><span>个生活词汇主题<br />每局使用 6 类 · 108 张单词牌</span></p>}
       {!compact && <div className="ai-strategy"><span>ESTRATEGIA AI</span><p>AI 会优先打出手中后续可按类别或颜色衔接的牌；对手接近获胜时优先使用功能牌，并确保不以功能牌收尾。</p></div>}
@@ -473,6 +484,7 @@ function StudyWordRow({
   saving,
   playing,
   onIncrease,
+  onDecrease,
   onPlay,
 }: {
   word: string;
@@ -481,13 +493,49 @@ function StudyWordRow({
   saving: boolean;
   playing: boolean;
   onIncrease: () => void;
+  onDecrease: () => void;
   onPlay: () => void;
 }) {
   const [revealed, setRevealed] = useState(false);
+  const [holding, setHolding] = useState(false);
   const pointerStart = useRef<{ x: number; pointerId: number } | null>(null);
+  const holdStart = useRef<{ x: number; y: number; pointerId: number } | null>(null);
+  const holdTimer = useRef<number | null>(null);
+  const longPressed = useRef(false);
   const swiped = useRef(false);
   const safeLevel = Math.min(STUDY_LEVELS.length - 1, Math.max(0, level));
   const levelInfo = STUDY_LEVELS[safeLevel];
+
+  const cancelHold = useCallback(() => {
+    if (holdTimer.current !== null) window.clearTimeout(holdTimer.current);
+    holdTimer.current = null;
+    holdStart.current = null;
+    setHolding(false);
+  }, []);
+
+  useEffect(() => cancelHold, [cancelHold]);
+
+  function startHold(clientX: number, clientY: number, pointerId: number) {
+    if (saving || safeLevel <= 0) return;
+    cancelHold();
+    longPressed.current = false;
+    holdStart.current = { x: clientX, y: clientY, pointerId };
+    setHolding(true);
+    holdTimer.current = window.setTimeout(() => {
+      holdTimer.current = null;
+      holdStart.current = null;
+      longPressed.current = true;
+      setHolding(false);
+      navigator.vibrate?.(35);
+      onDecrease();
+    }, 650);
+  }
+
+  function moveHold(clientX: number, clientY: number, pointerId: number) {
+    const start = holdStart.current;
+    if (!start || start.pointerId !== pointerId) return;
+    if (Math.hypot(clientX - start.x, clientY - start.y) > 12) cancelHold();
+  }
 
   function startSwipe(clientX: number, pointerId: number, element: HTMLElement) {
     const bounds = element.getBoundingClientRect();
@@ -508,10 +556,25 @@ function StudyWordRow({
 
   return (
     <article
-      className={`study-word-card study-level-${safeLevel}${revealed ? " meaning-open" : ""}`}
-      onPointerDown={(event) => startSwipe(event.clientX, event.pointerId, event.currentTarget)}
-      onPointerUp={(event) => finishSwipe(event.clientX, event.pointerId)}
-      onPointerCancel={() => { pointerStart.current = null; }}
+      className={`study-word-card study-level-${safeLevel}${revealed ? " meaning-open" : ""}${holding ? " holding" : ""}`}
+      onPointerDown={(event) => {
+        startSwipe(event.clientX, event.pointerId, event.currentTarget);
+        if ((event.target as Element).closest(".study-word-main")) {
+          startHold(event.clientX, event.clientY, event.pointerId);
+        }
+      }}
+      onPointerMove={(event) => moveHold(event.clientX, event.clientY, event.pointerId)}
+      onPointerUp={(event) => {
+        finishSwipe(event.clientX, event.pointerId);
+        cancelHold();
+        if (longPressed.current) window.setTimeout(() => { longPressed.current = false; }, 0);
+      }}
+      onPointerCancel={() => {
+        pointerStart.current = null;
+        cancelHold();
+        longPressed.current = false;
+      }}
+      onContextMenu={(event) => event.preventDefault()}
       onClickCapture={(event) => {
         if (!swiped.current) return;
         event.preventDefault();
@@ -519,17 +582,24 @@ function StudyWordRow({
         swiped.current = false;
       }}
     >
-      <button type="button" className="study-word-main" onClick={onIncrease} disabled={saving || safeLevel === STUDY_LEVELS.length - 1} aria-label={`${word}，${levelInfo.label}。${safeLevel === STUDY_LEVELS.length - 1 ? "已达到最高熟悉度" : "点击增加一级熟悉度"}`}>
+      <button type="button" className="study-word-main" onClick={(event) => {
+        if (longPressed.current) {
+          longPressed.current = false;
+          event.preventDefault();
+          return;
+        }
+        onIncrease();
+      }} disabled={saving} aria-label={`${word}，${levelInfo.label}。点击提升熟练度，长按降低一级`}>
         <span className="study-word-number">{String(safeLevel + 1).padStart(2, "0")}</span>
         <span className="study-word-copy">
           <strong>{word}</strong>
           <span className="study-word-meaning" aria-hidden={!revealed}>{zh}</span>
         </span>
-        <span className="study-word-level"><b>{saving ? "保存中…" : levelInfo.label}</b><small>{levelInfo.description}</small></span>
+        <span className="study-word-level"><b>{saving ? "保存中…" : holding ? "继续长按以回退" : levelInfo.label}</b><small>{levelInfo.description}</small></span>
         <span className="study-level-dots" aria-hidden="true">{STUDY_LEVELS.map((_, dot) => <i className={dot <= safeLevel ? "on" : ""} key={dot} />)}</span>
       </button>
       <div className="study-word-actions">
-        <span className="study-swipe-cue" aria-hidden="true">← 释义 →</span>
+        <span className="study-swipe-cue" aria-hidden="true">点击升级 · 长按回退</span>
         <button type="button" onClick={onPlay} disabled={playing} aria-label={`播放 ${word} 的西班牙语发音`}>{playing ? "…" : "🔊"}</button>
         <button type="button" onClick={() => setRevealed((value) => !value)} aria-label={revealed ? "隐藏中文释义" : "显示中文释义"}>{revealed ? "中 ×" : "中"}</button>
       </div>
@@ -584,11 +654,10 @@ function StudyApp({ user, onClose }: { user: User; onClose: () => void }) {
       : [...current, categoryId]);
   }
 
-  async function increaseLevel(word: string) {
+  async function saveLevel(word: string, nextLevel: number) {
     const wordKey = studyWordKey(word);
     if (savingKeys.has(wordKey)) return;
     const previousLevel = progress[wordKey] ?? 0;
-    const nextLevel = nextStudyLevel(previousLevel);
     if (nextLevel === previousLevel) return;
     setError("");
     setProgress((current) => ({ ...current, [wordKey]: nextLevel }));
@@ -599,7 +668,7 @@ function StudyApp({ user, onClose }: { user: User; onClose: () => void }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ word, level: nextLevel }),
       }));
-      setProgress((current) => ({ ...current, [wordKey]: Math.max(current[wordKey] ?? 0, data.level ?? nextLevel) }));
+      setProgress((current) => ({ ...current, [wordKey]: data.level ?? nextLevel }));
     } catch (requestError) {
       setProgress((current) => current[wordKey] === nextLevel ? { ...current, [wordKey]: previousLevel } : current);
       setError(requestError instanceof Error ? requestError.message : "无法保存学习进度。");
@@ -610,6 +679,16 @@ function StudyApp({ user, onClose }: { user: User; onClose: () => void }) {
         return next;
       });
     }
+  }
+
+  function increaseLevel(word: string) {
+    const current = progress[studyWordKey(word)] ?? 0;
+    void saveLevel(word, nextStudyLevel(current));
+  }
+
+  function decreaseLevel(word: string) {
+    const current = progress[studyWordKey(word)] ?? 0;
+    void saveLevel(word, previousStudyLevel(current));
   }
 
   function playWord(word: string) {
@@ -682,7 +761,7 @@ function StudyApp({ user, onClose }: { user: User; onClose: () => void }) {
                   <div className="study-word-list">
                     {category.words.map(([word, zh]) => {
                       const wordKey = studyWordKey(word);
-                      return <StudyWordRow key={`${category.id}:${word}`} word={word} zh={zh} level={progress[wordKey] ?? 0} saving={savingKeys.has(wordKey)} playing={playingWord === word} onIncrease={() => increaseLevel(word)} onPlay={() => playWord(word)} />;
+                      return <StudyWordRow key={`${category.id}:${word}`} word={word} zh={zh} level={progress[wordKey] ?? 0} saving={savingKeys.has(wordKey)} playing={playingWord === word} onIncrease={() => increaseLevel(word)} onDecrease={() => decreaseLevel(word)} onPlay={() => playWord(word)} />;
                     })}
                   </div>
                 </section>
@@ -761,6 +840,9 @@ function Lobby({ user, onGame, onLogout, onStudy }: { user: User; onGame: (game:
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
+  const [rooms, setRooms] = useState<RoomSummary[]>([]);
+  const [roomsLoading, setRoomsLoading] = useState(true);
+  const [roomsError, setRoomsError] = useState("");
 
   const categorySelectionValid = selectedCategoryIds.length === 0 || selectedCategoryIds.length === 6;
 
@@ -770,7 +852,25 @@ function Lobby({ user, onGame, onLogout, onStudy }: { user: User; onGame: (game:
       : current.length < 6 ? [...current, categoryId] : current);
   }
 
-  async function action(kind: "create" | "join", mode: "normal" | "practice" = "normal") {
+  const loadRooms = useCallback(async () => {
+    setRoomsError("");
+    try {
+      const data = await readJson(await fetch("/api/game?list=1", { cache: "no-store" }));
+      setRooms(data.rooms ?? []);
+    } catch (requestError) {
+      setRoomsError(requestError instanceof Error ? requestError.message : "暂时无法读取房间。");
+    } finally {
+      setRoomsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadRooms();
+    const timer = window.setInterval(() => void loadRooms(), 15_000);
+    return () => window.clearInterval(timer);
+  }, [loadRooms]);
+
+  async function action(kind: "create" | "join", mode: "normal" | "practice" = "normal", targetCode = code) {
     if (kind === "create" && !categorySelectionValid) {
       setError("请选择恰好 6 个类别，或清空选择后由系统随机抽取。");
       return;
@@ -783,7 +883,7 @@ function Lobby({ user, onGame, onLogout, onStudy }: { user: User; onGame: (game:
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: kind,
-          code,
+          code: targetCode,
           mode,
           ...(kind === "create" ? { categoryIds: selectedCategoryIds } : {}),
         }),
@@ -795,6 +895,11 @@ function Lobby({ user, onGame, onLogout, onStudy }: { user: User; onGame: (game:
       setBusy(false);
     }
   }
+
+  const roomSections: Array<{ mode: RoomSummary["mode"]; title: string; kicker: string }> = [
+    { mode: "normal", title: "普通模式", kicker: "COMPETICIÓN" },
+    { mode: "practice", title: "练习模式", kicker: "PRÁCTICA" },
+  ];
 
   return (
     <main className="lobby-shell">
@@ -820,15 +925,29 @@ function Lobby({ user, onGame, onLogout, onStudy }: { user: User; onGame: (game:
           <div className="lobby-actions">
             <div className="create-options">
               <button className="create-room" onClick={() => action("create", "normal")} disabled={busy || !categorySelectionValid}><span className="button-orb">＋</span><span><b>普通模式</b><small>创建房间并邀请朋友</small></span><i>→</i></button>
-              <button className="create-room practice-room" onClick={() => action("create", "practice")} disabled={busy || !categorySelectionValid}><span className="button-orb">练</span><span><b>练习模式</b><small>可显示中文、类别与出牌释义</small></span><i>→</i></button>
+              <button className="create-room practice-room" onClick={() => action("create", "practice")} disabled={busy || !categorySelectionValid}><span className="button-orb">练</span><span><b>练习模式</b><small>创建房间号，邀请朋友一起练习</small></span><i>→</i></button>
             </div>
             <div className="join-box">
-              <label htmlFor="room-code">加入房间</label>
+              <label htmlFor="room-code">加入普通或练习房间</label>
               <div><input id="room-code" value={code} onChange={(event) => setCode(event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6))} placeholder="输入 6 位房间号" maxLength={6} /><button onClick={() => action("join")} disabled={busy || code.length !== 6}>加入</button></div>
             </div>
           </div>
           {error && <div className="form-error lobby-error" role="alert">{error}</div>}
-          <div className="stat-row"><span><b>120</b> 张牌</span><span><b>6</b> 个类别</span><span><b>2–10</b> 人</span><span><b>7</b> 张起手</span></div>
+          <section className="live-rooms" aria-labelledby="live-rooms-title">
+            <header><div><span>LIVE ROOMS</span><h2 id="live-rooms-title">现在可以加入的牌桌</h2><p>这里只展示最近两小时内真实创建并仍在等待或游戏中的房间。</p></div><button type="button" onClick={() => void loadRooms()} disabled={roomsLoading}>{roomsLoading ? "刷新中…" : "刷新"}</button></header>
+            {roomsError && <div className="room-list-error" role="status">{roomsError}</div>}
+            <div className="room-mode-grid">
+              {roomSections.map((section) => {
+                const modeRooms = rooms.filter((room) => room.mode === section.mode).slice(0, 6);
+                return <div className={`room-mode-column room-mode-${section.mode}`} key={section.mode}><div className="room-mode-title"><span>{section.kicker}</span><b>{section.title}</b><small>{modeRooms.length} 个房间</small></div><div className="room-card-list">
+                  {!roomsLoading && modeRooms.length === 0 && <p className="room-list-empty">目前没有这个模式的公开房间。你可以创建第一个。</p>}
+                  {roomsLoading && modeRooms.length === 0 && <p className="room-list-empty">正在查找房间…</p>}
+                  {modeRooms.map((room) => <article className={room.status === "playing" ? "playing" : "waiting"} key={room.code}><i /><div><b>{room.hostName} 的牌桌</b><small>#{room.code} · {room.status === "waiting" ? "等待加入" : "游戏进行中"}</small></div><span>{room.playerCount}<small>/10</small></span><button type="button" disabled={busy || !room.canJoin} onClick={() => action("join", room.mode, room.code)}>{room.canJoin ? "加入" : "进行中"}</button></article>)}
+                </div></div>;
+              })}
+            </div>
+          </section>
+          <div className="stat-row"><span><b>124</b> 张牌</span><span><b>6</b> 个类别</span><span><b>2–10</b> 人</span><span><b>7</b> 张起手</span></div>
         </section>
         <Rules />
       </div>
@@ -849,7 +968,7 @@ function WaitingRoom({ game, user, onAction, onLeave, busy, error }: { game: Gam
       <div className="waiting-panel">
         <div className="eyebrow">SALA DE ESPERA</div>
         <h1>牌桌正在集合</h1>
-        <p>{game.mode === "practice" ? "练习模式 · 设置会对房间内所有玩家生效。" : "把房间号发给朋友；至少 2 人即可开始。"}</p>
+        <p>{game.mode === "practice" ? "练习模式也可以分享房间号邀请朋友；设置会对房间内所有玩家生效。" : "把房间号发给朋友；至少 2 人即可开始。"}</p>
         <button className="room-code" onClick={copyCode} aria-label="复制房间号"><span>房间号</span><strong>{game.code}</strong><small>点击复制</small></button>
         <section className="room-categories" aria-label="本局词汇类别">
           <div><b>本局六类</b><small>108 张单词牌只来自以下类别</small></div>
@@ -883,6 +1002,7 @@ function GameCard({ card, onClick, disabled = false, top = false, highlighted = 
   return (
     <button className={`game-card ${card.kind === "action" ? `action-card action-${card.action} ${colorClass}` : `word-card ${colorClass}`} ${card.zh ? "show-help" : ""} ${top ? "top-card" : ""} ${highlighted ? "drawn-card" : ""}`} onClick={onClick} disabled={disabled} tabIndex={onClick ? 0 : -1} aria-label={`${card.word}${disabled ? "，当前不可出" : ""}`}>
       <span className="card-word">{card.word}</span>
+      {card.action === "wild" && card.color && <span className="wild-choice">当前{({ red: "红", yellow: "黄", blue: "蓝", green: "绿" } as Record<CardColor, string>)[card.color]}色</span>}
       {card.zh && <span className="card-learning"><b>{card.zh}</b><small>{card.categories?.join(" / ")}</small></span>}
     </button>
   );
@@ -934,6 +1054,7 @@ function GameTable({
   const activePlay = queuedPlays[0] ?? null;
   const [visualTopCard, setVisualTopCard] = useState<ClientCard | null>(game.topCard);
   const [flightStyle, setFlightStyle] = useState<FlightStyle | null>(null);
+  const [pendingWildCardId, setPendingWildCardId] = useState<string | null>(null);
   const boardRef = useRef<HTMLElement | null>(null);
   const discardRef = useRef<HTMLDivElement | null>(null);
   const playerSources = useRef(new Map<string, HTMLElement>());
@@ -942,6 +1063,10 @@ function GameTable({
     if (node) playerSources.current.set(playerId, node);
     else playerSources.current.delete(playerId);
   }, []);
+
+  useEffect(() => {
+    if (!myTurn || game.status !== "playing") setPendingWildCardId(null);
+  }, [game.status, myTurn]);
 
   useEffect(() => {
     const fresh = (game.playEvents ?? [])
@@ -955,25 +1080,31 @@ function GameTable({
   const announcedPlayId = useRef(initialEventId);
 
   useEffect(() => {
-    if (!activePlay || activePlay.id === announcedPlayId.current) return;
+    if (!activePlay || !flightStyle || activePlay.id === announcedPlayId.current) return;
     announcedPlayId.current = activePlay.id;
     speakWord(activePlay.card.word);
-  }, [activePlay, speakWord]);
+  }, [activePlay, flightStyle, speakWord]);
 
-  useLayoutEffect(() => {
+  useEffect(() => {
+    setFlightStyle(null);
     if (!activePlay || !boardRef.current || !discardRef.current) return;
-    const boardRect = boardRef.current.getBoundingClientRect();
-    const sourceRect = (playerSources.current.get(activePlay.actorId) ?? boardRef.current).getBoundingClientRect();
-    const targetElement = discardRef.current.querySelector<HTMLElement>(".game-card, .empty-top") ?? discardRef.current;
-    const targetRect = targetElement.getBoundingClientRect();
-    const cardWidth = targetRect.width || 142;
-    const cardHeight = targetRect.height || 202;
-    setFlightStyle({
-      "--play-from-x": `${sourceRect.left - boardRect.left + sourceRect.width / 2 - cardWidth / 2}px`,
-      "--play-from-y": `${sourceRect.top - boardRect.top + sourceRect.height / 2 - cardHeight / 2}px`,
-      "--play-to-x": `${targetRect.left - boardRect.left}px`,
-      "--play-to-y": `${targetRect.top - boardRect.top}px`,
-    });
+    const thinkingDelay = activePlay.actorType === "ai" ? 1050 + (activePlay.id % 4) * 220 : 80;
+    const timer = window.setTimeout(() => {
+      if (!boardRef.current || !discardRef.current) return;
+      const boardRect = boardRef.current.getBoundingClientRect();
+      const sourceRect = (playerSources.current.get(activePlay.actorId) ?? boardRef.current).getBoundingClientRect();
+      const targetElement = discardRef.current.querySelector<HTMLElement>(".game-card, .empty-top") ?? discardRef.current;
+      const targetRect = targetElement.getBoundingClientRect();
+      const cardWidth = targetRect.width || 142;
+      const cardHeight = targetRect.height || 202;
+      setFlightStyle({
+        "--play-from-x": `${sourceRect.left - boardRect.left + sourceRect.width / 2 - cardWidth / 2}px`,
+        "--play-from-y": `${sourceRect.top - boardRect.top + sourceRect.height / 2 - cardHeight / 2}px`,
+        "--play-to-x": `${targetRect.left - boardRect.left}px`,
+        "--play-to-y": `${targetRect.top - boardRect.top}px`,
+      });
+    }, thinkingDelay);
+    return () => window.clearTimeout(timer);
   }, [activePlay]);
 
   const completeActivePlay = useCallback(() => {
@@ -986,7 +1117,8 @@ function GameTable({
 
   useEffect(() => {
     if (!activePlay) return;
-    const fallback = window.setTimeout(completeActivePlay, 1150);
+    const fallbackDelay = activePlay.actorType === "ai" ? 2900 : 1250;
+    const fallback = window.setTimeout(completeActivePlay, fallbackDelay);
     return () => window.clearTimeout(fallback);
   }, [activePlay, completeActivePlay]);
 
@@ -1001,7 +1133,9 @@ function GameTable({
   const tableBusy = busy || isAnimating;
   const shownCurrentId = activePlay?.actorId ?? game.currentPlayerId;
   const turnMessage = activePlay
-    ? `${activePlay.actorName}${activePlay.actorType === "ai" ? "（AI）" : ""} 打出了 ${activePlay.card.word}`
+    ? !flightStyle && activePlay.actorType === "ai"
+      ? `${activePlay.actorName}（AI）正在思考…`
+      : `${activePlay.actorName}${activePlay.actorType === "ai" ? "（AI）" : ""} 打出了 ${activePlay.card.word}`
     : hasDrawn
       ? "可打出刚摸的牌，或结束回合"
       : myTurn
@@ -1041,9 +1175,11 @@ function GameTable({
         <div className="my-area">
           <div className="hand-title"><span><b>{me.name}</b> · 你的手牌</span><small>{game.hand.length} 张 · {hasDrawn ? "本回合只能打出高亮牌" : "可以出牌，也可以摸牌"}</small></div>
           <div className="hand-scroll" ref={(node) => registerPlayerSource(game.viewerPlayerId, node)}>
-            {game.hand.map((card) => <GameCard key={card.id} card={card} highlighted={card.id === game.drawnCardId} onClick={() => onAction("play", { cardId: card.id })} disabled={!myTurn || tableBusy || (hasDrawn && card.id !== game.drawnCardId) || (card.kind === "action" && game.hand.length === 1)} />)}
+            {game.hand.map((card) => <GameCard key={card.id} card={card} highlighted={card.id === game.drawnCardId} onClick={() => card.action === "wild" ? setPendingWildCardId(card.id) : onAction("play", { cardId: card.id })} disabled={!myTurn || tableBusy || (hasDrawn && card.id !== game.drawnCardId) || (card.kind === "action" && game.hand.length === 1)} />)}
           </div>
         </div>
+
+        {pendingWildCardId && <div className="wild-picker-overlay" role="dialog" aria-modal="true" aria-labelledby="wild-picker-title"><section><span>CAMBIAR</span><h2 id="wild-picker-title">选择新的颜色</h2><p>换色牌可以随时打出，下一位玩家需要按照你选择的颜色接牌。</p><div>{(["red", "yellow", "blue", "green"] as CardColor[]).map((color) => <button type="button" className={`pick-${color}`} key={color} onClick={() => { onAction("play", { cardId: pendingWildCardId, wildColor: color }); setPendingWildCardId(null); }}>{({ red: "红色", yellow: "黄色", blue: "蓝色", green: "绿色" } as Record<CardColor, string>)[color]}</button>)}</div><button type="button" className="wild-picker-cancel" onClick={() => setPendingWildCardId(null)}>取消</button></section></div>}
 
         {game.status === "finished" && !isAnimating && <div className="winner-overlay"><div className="winner-card"><span>¡GANADOR!</span><h2>{winner?.name}</h2><p>{winner?.id === game.viewerPlayerId ? "漂亮！你用词汇赢下了这一局。" : "这一局结束了，再来一场继续挑战吧。"}</p><button className="primary-button" onClick={onLeave}>返回大厅 <span>→</span></button></div></div>}
       </section>

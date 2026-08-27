@@ -926,3 +926,69 @@ body { font-weight: 520; }
 @media (prefers-reduced-motion: reduce) {
   .admin-loader { animation: none; }
 }
+
+/* Live room browser, wild cards, and study hold gesture */
+.live-rooms { max-width: 860px; margin: 34px 0 26px; border: 3px solid var(--uno-navy); border-radius: 20px; background: rgba(255,255,255,.94); box-shadow: 7px 8px 0 var(--uno-blue); overflow: hidden; }
+.live-rooms > header { min-height: 92px; padding: 17px 19px; display: flex; align-items: center; justify-content: space-between; gap: 20px; border-bottom: 2px solid rgba(17,20,44,.14); }
+.live-rooms > header span { color: var(--uno-red); font-size: 9px; font-weight: 950; letter-spacing: .16em; }
+.live-rooms > header h2 { margin: 3px 0; font-family: Arial Black, Impact, sans-serif; font-size: 23px; font-style: italic; letter-spacing: -.04em; }
+.live-rooms > header p { margin: 0; color: var(--ink-soft); font-size: 10px; }
+.live-rooms > header button { flex: 0 0 auto; min-height: 38px; padding: 8px 13px; border: 2px solid var(--uno-navy); border-radius: 10px; background: var(--uno-yellow); font: inherit; font-size: 11px; font-weight: 900; cursor: pointer; }
+.live-rooms > header button:disabled { opacity: .58; cursor: wait; }
+.room-list-error { padding: 9px 18px; color: #9d1424; background: #ffe3e5; font-size: 11px; font-weight: 800; }
+.room-mode-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.room-mode-column + .room-mode-column { border-left: 2px solid rgba(17,20,44,.13); }
+.room-mode-title { display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 2px 12px; padding: 14px 16px 10px; background: #f1f3fa; }
+.room-mode-title > span { grid-column: 1 / -1; color: var(--uno-blue); font-size: 8px; font-weight: 950; letter-spacing: .13em; }
+.room-mode-title > b { font-size: 14px; }
+.room-mode-title > small { color: var(--ink-soft); font-size: 9px; }
+.room-mode-practice .room-mode-title > span { color: var(--uno-green); }
+.room-card-list { min-height: 148px; padding: 8px 12px 14px; display: grid; align-content: start; gap: 8px; }
+.room-card-list article { min-height: 58px; display: grid; grid-template-columns: 9px minmax(0, 1fr) auto auto; align-items: center; gap: 9px; border: 2px solid var(--uno-navy); border-radius: 12px; background: white; padding: 8px 8px 8px 10px; box-shadow: 2px 3px 0 rgba(17,20,44,.12); }
+.room-card-list article > i { width: 8px; height: 28px; border-radius: 999px; background: var(--uno-green); }
+.room-card-list article.playing > i { background: var(--uno-red); }
+.room-card-list article > div { min-width: 0; display: grid; gap: 2px; }
+.room-card-list article > div b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.room-card-list article > div small { color: var(--ink-soft); font-size: 8px; }
+.room-card-list article > span { font-family: Arial Black, Impact, sans-serif; font-size: 17px; }
+.room-card-list article > span small { color: var(--ink-soft); font: 700 8px/1 sans-serif; }
+.room-card-list article > button { min-height: 34px; padding: 6px 10px; color: white; border: 2px solid var(--uno-navy); border-radius: 8px; background: var(--uno-green); font: inherit; font-size: 9px; font-weight: 900; cursor: pointer; }
+.room-card-list article > button:disabled { color: var(--ink-soft); background: #e9ebf2; cursor: default; }
+.room-list-empty { margin: 8px 4px; color: var(--ink-soft); font-size: 10px; line-height: 1.55; }
+
+.study-word-main { position: relative; overflow: hidden; }
+.study-word-card.holding { transform: scale(.992); box-shadow: 0 0 0 5px rgba(255,255,255,.6), 5px 6px 0 rgba(17,20,44,.2); }
+.study-word-card.holding .study-word-main::after { content: ""; position: absolute; left: 0; bottom: 0; height: 6px; width: 100%; background: rgba(255,255,255,.9); transform-origin: left; animation: study-hold-progress .65s linear forwards; }
+@keyframes study-hold-progress { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+
+.game-card.action-wild, .game-card.action-card.action-wild.card-red, .game-card.action-card.action-wild.card-yellow, .game-card.action-card.action-wild.card-blue, .game-card.action-card.action-wild.card-green { color: white; background: conic-gradient(from 45deg, var(--uno-red) 0 25%, var(--uno-yellow) 25% 50%, var(--uno-green) 50% 75%, var(--uno-blue) 75%); border-color: var(--uno-navy); text-shadow: 2px 2px 0 rgba(17,20,44,.55); }
+.game-card.action-wild::before { background: rgba(17,20,44,.42); border-color: white; }
+.game-card.action-wild .card-word { max-width: 88%; font-size: .76em; }
+.wild-choice { position: absolute; z-index: 2; left: 50%; bottom: 20px; transform: translateX(-50%); min-width: max-content; padding: 4px 7px; color: var(--uno-navy); border: 2px solid white; border-radius: 999px; background: var(--uno-yellow); font: 900 8px/1 ui-sans-serif, sans-serif; text-shadow: none; }
+.wild-picker-overlay { position: fixed; z-index: 30; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(16,19,43,.78); backdrop-filter: blur(7px); }
+.wild-picker-overlay > section { width: min(460px, 100%); padding: 27px; text-align: center; border: 4px solid var(--uno-navy); border-radius: 22px; background: white; box-shadow: 12px 14px 0 var(--uno-yellow); }
+.wild-picker-overlay > section > span { color: var(--uno-red); font-size: 10px; font-weight: 950; letter-spacing: .18em; }
+.wild-picker-overlay h2 { margin: 7px 0; font-family: Arial Black, Impact, sans-serif; font-style: italic; font-size: 33px; letter-spacing: -.045em; }
+.wild-picker-overlay p { margin: 0 auto 20px; max-width: 360px; color: var(--ink-soft); font-size: 12px; line-height: 1.55; }
+.wild-picker-overlay section > div { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+.wild-picker-overlay section > div button { min-height: 58px; color: white; border: 3px solid var(--uno-navy); border-radius: 13px; box-shadow: 0 5px 0 var(--uno-navy); font: 900 14px/1 ui-sans-serif, sans-serif; cursor: pointer; }
+.wild-picker-overlay .pick-red { background: var(--uno-red); }
+.wild-picker-overlay .pick-yellow { color: var(--uno-navy); background: var(--uno-yellow); }
+.wild-picker-overlay .pick-blue { background: var(--uno-blue); }
+.wild-picker-overlay .pick-green { background: var(--uno-green); }
+.wild-picker-cancel { margin-top: 19px; border: 0; background: transparent; color: var(--ink-soft); font: inherit; font-size: 11px; font-weight: 850; cursor: pointer; }
+
+@media (max-width: 720px) {
+  .live-rooms { margin-top: 27px; border-radius: 17px; }
+  .live-rooms > header { align-items: flex-start; padding: 15px; }
+  .live-rooms > header p { max-width: 240px; }
+  .room-mode-grid { grid-template-columns: 1fr; }
+  .room-mode-column + .room-mode-column { border-left: 0; border-top: 2px solid rgba(17,20,44,.13); }
+  .room-card-list { min-height: 100px; }
+  .room-card-list article { grid-template-columns: 8px minmax(0, 1fr) auto auto; }
+  .wild-picker-overlay > section { padding: 23px 18px; box-shadow: 7px 9px 0 var(--uno-yellow); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .study-word-card.holding .study-word-main::after { animation-duration: .01s; }
+}

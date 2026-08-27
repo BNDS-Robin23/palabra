@@ -19,15 +19,19 @@ export const sessions = sqliteTable("sessions", {
   createdAt: integer("created_at").notNull(),
 });
 
-export const rooms = sqliteTable("rooms", {
-  code: text("code").primaryKey(),
-  hostUserId: text("host_user_id").notNull(),
-  status: text("status").notNull(),
-  stateJson: text("state_json").notNull(),
-  version: integer("version").notNull().default(1),
-  createdAt: integer("created_at").notNull(),
-  updatedAt: integer("updated_at").notNull(),
-});
+export const rooms = sqliteTable(
+  "rooms",
+  {
+    code: text("code").primaryKey(),
+    hostUserId: text("host_user_id").notNull(),
+    status: text("status").notNull(),
+    stateJson: text("state_json").notNull(),
+    version: integer("version").notNull().default(1),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [index("idx_rooms_status_updated_at").on(table.status, table.updatedAt)],
+);
 
 export const studyProgress = sqliteTable(
   "study_progress",

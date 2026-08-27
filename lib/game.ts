@@ -1,4 +1,4 @@
-import { buildDeck, canPlayCard, cardsMatch, selectGameCategoryIds, type GameCard } from "./cards";
+import { COLORS, buildDeck, canPlayCard, cardsMatch, selectGameCategoryIds, type CardColor, type GameCard } from "./cards";
 import { VOCABULARY_CATEGORY_NAMES } from "./vocabulary";
 
 export type GameMode = "normal" | "practice";
@@ -145,7 +145,9 @@ function showPlayedMeanings(state: GameState) {
 function replenishPile(state: GameState) {
   if (state.drawPile.length || state.discardPile.length <= 1) return;
   const top = state.discardPile[state.discardPile.length - 1];
-  state.drawPile = shuffle(state.discardPile.slice(0, -1));
+  state.drawPile = shuffle(state.discardPile.slice(0, -1).map((card) => (
+    card.action === "wild" ? { ...card, color: undefined } : card
+  )));
   state.discardPile = [top];
   addLog(state, "弃牌堆已重新洗成牌堆。", "normal");
 }
@@ -240,9 +242,26 @@ export function startGame(state: GameState) {
   addLog(state, `牌局开始，${state.players[0].name} 可以打出任意一张牌。`, "success");
 }
 
-function applyValidPlay(state: GameState, playerIndex: number, cardIndex: number, drawnNow = false) {
+const COLOR_NAMES: Record<CardColor, string> = {
+  red: "红色",
+  yellow: "黄色",
+  blue: "蓝色",
+  green: "绿色",
+};
+
+function applyValidPlay(
+  state: GameState,
+  playerIndex: number,
+  cardIndex: number,
+  drawnNow = false,
+  wildColor?: CardColor,
+) {
   const player = state.players[playerIndex];
   const [card] = player.hand.splice(cardIndex, 1);
+  if (card.action === "wild") {
+    if (!wildColor || !COLORS.includes(wildColor)) throw new Error("请选择换色牌的新颜色。");
+    card.color = wildColor;
+  }
   state.discardPile.push(card);
   state.firstMove = false;
   state.drawnCardId = undefined;
@@ -256,6 +275,9 @@ function applyValidPlay(state: GameState, playerIndex: number, cardIndex: number
       : `${player.name} 打出了 ${card.word}${meaning}。`,
     card.kind === "action" ? "action" : "normal",
   );
+  if (card.action === "wild" && card.color) {
+    addLog(state, `${player.name} 把当前颜色换成了${COLOR_NAMES[card.color]}。`, "action");
+  }
 
   if (player.hand.length === 0) {
     state.status = "finished";
@@ -286,7 +308,7 @@ function applyValidPlay(state: GameState, playerIndex: number, cardIndex: number
   state.currentIndex = nextIndex(state, playerIndex);
 }
 
-export function playHumanCard(state: GameState, playerId: string, cardId: string) {
+export function playHumanCard(state: GameState, playerId: string, cardId: string, wildColor?: CardColor) {
   if (state.status !== "playing") throw new Error("牌局尚未开始。");
   const playerIndex = state.players.findIndex((player) => player.id === playerId);
   if (playerIndex < 0 || playerIndex !== state.currentIndex) throw new Error("还没轮到你。");
@@ -321,7 +343,10 @@ export function playHumanCard(state: GameState, playerId: string, cardId: string
     state.currentIndex = nextIndex(state, playerIndex);
     return { valid: false };
   }
-  applyValidPlay(state, playerIndex, cardIndex);
+  if (card.action === "wild" && (!wildColor || !COLORS.includes(wildColor))) {
+    throw new Error("请选择换色牌的新颜色。");
+  }
+  applyValidPlay(state, playerIndex, cardIndex, false, wildColor);
   return { valid: true };
 }
 
@@ -359,7 +384,7 @@ function chooseAiCard(state: GameState, player: Player) {
 
   const next = state.players[nextIndex(state)];
   const threat = next.hand.length <= 2;
-  const actionPriority: Record<string, number> = { draw2: 32, skip: 24, reverse: 16 };
+  const actionPriority: Record<string, number> = { draw2: 32, skip: 24, reverse: 16, wild: 12 };
   legal.sort((a, b) => {
     const score = ({ card }: (typeof legal)[number]) => {
       if (card.kind === "action") return (threat ? 100 : -20) + (actionPriority[card.action ?? ""] ?? 0);
@@ -373,6 +398,14 @@ function chooseAiCard(state: GameState, player: Player) {
   return legal[0];
 }
 
+function chooseAiColor(player: Player): CardColor {
+  const counts = new Map<CardColor, number>(COLORS.map((color) => [color, 0]));
+  for (const card of player.hand) {
+    if (card.action !== "wild" && card.color) counts.set(card.color, (counts.get(card.color) ?? 0) + 1);
+  }
+  return [...counts.entries()].sort((left, right) => right[1] - left[1])[0]?.[0] ?? COLORS[0];
+}
+
 export function processAiTurns(state: GameState) {
   let safety = 0;
   while (state.status === "playing" && state.players[state.currentIndex]?.type === "ai" && safety < 50) {
@@ -381,7 +414,8 @@ export function processAiTurns(state: GameState) {
     const player = state.players[playerIndex];
     const choice = chooseAiCard(state, player);
     if (choice) {
-      applyValidPlay(state, playerIndex, choice.index);
+      const wildColor = choice.card.action === "wild" ? chooseAiColor(player) : undefined;
+      applyValidPlay(state, playerIndex, choice.index, false, wildColor);
       continue;
     }
     const top = state.discardPile[state.discardPile.length - 1] ?? null;
@@ -392,7 +426,8 @@ export function processAiTurns(state: GameState) {
     }
     player.hand.push(drawn);
     if (canPlayCard(drawn, top, state.firstMove, player.hand.length)) {
-      applyValidPlay(state, playerIndex, player.hand.length - 1, true);
+      const wildColor = drawn.action === "wild" ? chooseAiColor(player) : undefined;
+      applyValidPlay(state, playerIndex, player.hand.length - 1, true, wildColor);
     } else {
       addLog(state, `${player.name}（AI）摸了 1 张牌，但仍无法出牌。`);
       state.currentIndex = nextIndex(state, playerIndex);

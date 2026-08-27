@@ -1,6 +1,7 @@
 import { ensureSchema, getD1 } from "../../../db";
 import { getSessionUser, type SessionUser } from "../../../lib/auth";
 import { recordAnalyticsEvent } from "../../../lib/analytics";
+import { type CardColor } from "../../../lib/cards";
 import {
   addAiPlayer,
   addHumanPlayer,
@@ -23,12 +24,14 @@ type RoomRow = {
   status: GameState["status"];
   stateJson: string;
   version: number;
+  updatedAt: number;
 };
 
 type GamePayload = {
   action?: "create" | "join" | "add_ai" | "start" | "play" | "draw" | "pass" | "update_settings";
   code?: string;
   cardId?: string;
+  wildColor?: CardColor;
   mode?: GameMode;
   categoryIds?: string[];
   setting?: keyof PracticeSettings;
@@ -52,7 +55,8 @@ async function requireUser(request: Request) {
 async function loadRoom(code: string) {
   if (code.length !== 6) throw new Error("请输入 6 位房间号。");
   const room = await getD1().prepare(
-    `SELECT code, host_user_id AS hostUserId, status, state_json AS stateJson, version
+    `SELECT code, host_user_id AS hostUserId, status, state_json AS stateJson,
+            version, updated_at AS updatedAt
      FROM rooms WHERE code = ?`,
   ).bind(code).first<RoomRow>();
   if (!room) throw new Error("没有找到这个房间。");
@@ -87,7 +91,37 @@ export async function GET(request: Request) {
   try {
     await ensureSchema();
     const user = await requireUser(request);
-    const code = cleanCode(new URL(request.url).searchParams.get("code"));
+    const searchParams = new URL(request.url).searchParams;
+    if (searchParams.get("list") === "1") {
+      const recentCutoff = Math.floor(Date.now() / 1000) - 2 * 60 * 60;
+      const result = await getD1().prepare(
+        `SELECT code, host_user_id AS hostUserId, status, state_json AS stateJson,
+                version, updated_at AS updatedAt
+         FROM rooms
+         WHERE status IN ('waiting', 'playing') AND updated_at >= ?
+         ORDER BY updated_at DESC
+         LIMIT 24`,
+      ).bind(recentCutoff).all<RoomRow>();
+      const rooms = result.results.flatMap((room) => {
+        try {
+          const state = parseState(room);
+          const host = state.players.find((player) => player.userId === room.hostUserId);
+          return [{
+            code: room.code,
+            mode: state.mode === "practice" ? "practice" as const : "normal" as const,
+            status: state.status,
+            playerCount: state.players.length,
+            hostName: host?.name ?? "Palabra 玩家",
+            updatedAt: room.updatedAt,
+            canJoin: state.status === "waiting" && state.players.length < 10,
+          }];
+        } catch {
+          return [];
+        }
+      });
+      return Response.json({ rooms });
+    }
+    const code = cleanCode(searchParams.get("code"));
     const room = await loadRoom(code);
     const state = parseState(room);
     viewerPlayerId(state, user);
@@ -118,7 +152,7 @@ export async function POST(request: Request) {
             `INSERT INTO rooms (code, host_user_id, status, state_json, version, created_at, updated_at)
              VALUES (?, ?, 'waiting', ?, 1, ?, ?)`,
           ).bind(code, user.id, JSON.stringify(state), now, now).run();
-          const room: RoomRow = { code, hostUserId: user.id, status: "waiting", stateJson: JSON.stringify(state), version: 1 };
+          const room: RoomRow = { code, hostUserId: user.id, status: "waiting", stateJson: JSON.stringify(state), version: 1, updatedAt: now };
           await recordAnalyticsEvent(user.id, "waiting_room", "room_create", { mode, categoryCount: state.categoryIds?.length ?? 0 });
           return roomResponse(room, state, 1, user);
         } catch {
@@ -161,7 +195,7 @@ export async function POST(request: Request) {
       startedGame = true;
     } else if (payload.action === "play") {
       if (!payload.cardId) throw new Error("请选择一张牌。");
-      playHumanCard(state, playerId, payload.cardId);
+      playHumanCard(state, playerId, payload.cardId, payload.wildColor);
       processAiTurns(state);
     } else if (payload.action === "draw") {
       drawForHuman(state, playerId);

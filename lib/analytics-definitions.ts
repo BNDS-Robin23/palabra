@@ -14,6 +14,7 @@ export const ANALYTICS_EVENTS = [
   "login",
   "study_categories_selected",
   "word_level_up",
+  "word_level_down",
   "audio_play",
   "room_create",
   "room_join",
